@@ -57,7 +57,7 @@ verify: check-env ## Run health + security boundary checks
 	bash scripts/verify.sh
 
 .PHONY: repo
-repo: check-env ## Init git + create & push the GitHub repo (via gh). Usage: make repo [NAME=airlocked-agents] [VIS=private]
+repo: ## Init git + create & push the GitHub repo (via gh). Usage: make repo [NAME=airlocked-agents] [VIS=private]
 	bash scripts/bootstrap-repo.sh $(or $(NAME),airlocked-agents) $(or $(VIS),private)
 
 .PHONY: lint

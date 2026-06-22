@@ -43,10 +43,24 @@ echo "About to create GitHub repo '$REPO_NAME' ($VISIBILITY) and push 'main'."
 read -r -p "Proceed? [y/N] " ans
 [[ "$ans" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
 
+# Make sure git can authenticate to GitHub over whatever protocol gh is configured for.
+gh auth setup-git >/dev/null 2>&1 || true
+GIT_PROTOCOL="$(gh config get git_protocol 2>/dev/null || echo https)"
+
 if gh repo view "$REPO_NAME" >/dev/null 2>&1; then
   echo "Repo exists — pushing to it."
-  git remote get-url origin >/dev/null 2>&1 || \
-    git remote add origin "$(gh repo view "$REPO_NAME" --json sshUrl -q .sshUrl)"
+  NWO="$(gh repo view "$REPO_NAME" --json nameWithOwner -q .nameWithOwner)"
+  if [ "$GIT_PROTOCOL" = "ssh" ]; then
+    ORIGIN_URL="git@github.com:${NWO}.git"
+  else
+    ORIGIN_URL="https://github.com/${NWO}.git"
+  fi
+  # Point origin at the URL matching gh's protocol (add if missing, correct it if it differs).
+  if git remote get-url origin >/dev/null 2>&1; then
+    git remote set-url origin "$ORIGIN_URL"
+  else
+    git remote add origin "$ORIGIN_URL"
+  fi
   git push -u origin main
 else
   gh repo create "$REPO_NAME" --"$VISIBILITY" --source=. --remote=origin --push

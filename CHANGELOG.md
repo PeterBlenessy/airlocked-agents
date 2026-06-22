@@ -24,6 +24,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tunnel path is implemented rather than only described.
 - `Brewfile`: add `socat` and `node`; drop the invalid `wireguard-tools` cask line.
 - Removed a duplicate `bootstrap-repo.sh` at the repo root (canonical copy is `scripts/`).
+- `make repo` no longer requires `.env` (you publish before configuring it).
+- `bootstrap-repo.sh` now respects `gh`'s configured git protocol (was hardcoded to SSH,
+  which broke HTTPS-only `gh` setups) and runs `gh auth setup-git` before pushing.
 
 ## [0.1.0] — 2026-06-21
 ### Added
