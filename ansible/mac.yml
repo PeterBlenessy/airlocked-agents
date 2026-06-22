@@ -38,7 +38,7 @@
         global: true
         state: present
       tags: [packages, cua]
-      ignore_errors: true     # non-fatal: install manually if the package name differs
+      failed_when: false      # non-fatal: install manually if the package name differs
 
     - name: Render the llama-server launchd plist
       ansible.builtin.template:

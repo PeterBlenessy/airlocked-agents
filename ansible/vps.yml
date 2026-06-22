@@ -136,7 +136,8 @@
       args:
         executable: /bin/bash
       tags: [workflows]
-      ignore_errors: true
+      changed_when: false     # the loop reports per-file status; import needs editor review
+      failed_when: false      # a failed import is non-fatal — finish it in the n8n editor
 
     # ---- Teardown ----
     - name: Stop n8n
