@@ -11,6 +11,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   localhost model on the WireGuard interface so the VPS can route sensitive research to the
   local model over the tunnel. `LOCAL_MODEL_BASE_URL` / `LOCAL_MODEL_API_KEY` added to `.env`.
 - `scripts/injection-selftest.sh`: automated allowlist-guard unit test, now run by `make verify`.
+- `.devcontainer/`: a Linux dev environment mirroring CI (Python 3.12, ansible + ansible-lint +
+  community.general, docker compose, shellcheck, node) for validating the IaC locally.
 
 ### Changed
 - The write-path workflow now embeds the allowlist guard inline (was a paste-me placeholder),

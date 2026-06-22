@@ -57,6 +57,8 @@ airlocked-agents/
 ├── LICENSE                  # MIT
 ├── docs-MANUAL-STEPS.md     # the irreducible interactive steps
 ├── .env.example             # copy to .env and fill in
+├── .devcontainer/           # Linux dev env mirroring CI (lint/validate the IaC locally)
+│   └── devcontainer.json
 ├── .github/workflows/
 │   └── ci.yml               # syntax + compose + json/shell checks + secret guard
 ├── ansible/

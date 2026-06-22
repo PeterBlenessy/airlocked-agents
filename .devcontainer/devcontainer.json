@@ -1,0 +1,23 @@
+{
+  "name": "airlocked-agents",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "lts" },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "onCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck jq make && sudo rm -rf /var/lib/apt/lists/*",
+  "postCreateCommand": "python -m pip install --upgrade pip && pip install ansible ansible-lint && ansible-galaxy collection install community.general",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "redhat.ansible",
+        "redhat.vscode-yaml",
+        "ms-azuretools.vscode-docker",
+        "timonwong.shellcheck",
+        "EditorConfig.EditorConfig"
+      ]
+    }
+  },
+  "remoteUser": "vscode"
+}

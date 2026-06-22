@@ -25,6 +25,10 @@ make lint      # ansible + compose sanity
 make verify    # health + boundary checks (needs the stack running)
 ```
 
+For a toolchain identical to CI (Python, Ansible, `community.general`, docker compose,
+shellcheck, node), open the repo in the dev container — see [`.devcontainer/`](.devcontainer/).
+It's the easiest way to reproduce CI's hard gates locally before pushing.
+
 And, if you changed any workflow or send path, run the most important test by hand:
 
 ```bash
