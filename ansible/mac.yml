@@ -16,8 +16,12 @@
 
   tasks:
     - name: Install Homebrew packages from the Brewfile (idempotent)
-      community.general.homebrew_bundle:
-        file: "{{ repo_root }}/mac/Brewfile"
+      # `brew bundle` is itself idempotent — it only installs what is missing.
+      # (community.general has no homebrew_bundle module, so we invoke brew directly.)
+      ansible.builtin.command:
+        cmd: brew bundle --file={{ repo_root }}/mac/Brewfile
+      register: brew_bundle
+      changed_when: "'Installing' in brew_bundle.stdout"
       tags: [packages]
 
     - name: Install Open Interpreter via pipx (isolated)
