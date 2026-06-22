@@ -1,0 +1,107 @@
+---
+# ansible/mac.yml — provision the private core on the Mac. Idempotent.
+# Requires the community.general collection: ansible-galaxy collection install community.general
+- name: Provision the Mac private core
+  hosts: mac
+  gather_facts: true
+  vars:
+    repo_root: "{{ playbook_dir }}/.."
+    model_dir: "{{ lookup('env','MODEL_DIR') | default(ansible_env.HOME ~ '/models', true) }}"
+    model_file: "{{ lookup('env','MODEL_FILE') }}"
+    model_path: "{{ model_dir }}/{{ model_file }}"
+    llama_port: "{{ lookup('env','LLAMA_PORT') | default('8080', true) }}"
+    llama_ctx: "{{ lookup('env','LLAMA_CTX') | default('32768', true) }}"
+    llama_api_key: "{{ lookup('env','LLAMA_API_KEY') | default('local-only', true) }}"
+    mac_tunnel_ip: "{{ lookup('env','MAC_TUNNEL_IP') | default('10.10.0.2', true) }}"
+
+  tasks:
+    - name: Install Homebrew packages from the Brewfile (idempotent)
+      community.general.homebrew_bundle:
+        file: "{{ repo_root }}/mac/Brewfile"
+      tags: [packages]
+
+    - name: Install Open Interpreter via pipx (isolated)
+      community.general.pipx:
+        name: open-interpreter
+        state: present
+      tags: [packages]
+
+    # Cua is OPTIONAL and best-effort: the upstream npm package name is not pinned/verified,
+    # so this step is allowed to fail. If it does, install the driver manually per cua.ai docs.
+    - name: Install the Cua computer-use driver (npm global, best-effort)
+      community.general.npm:
+        name: "@cua/cli"      # verify the exact package name against cua.ai docs
+        global: true
+        state: present
+      tags: [packages, cua]
+      ignore_errors: true     # non-fatal: install manually if the package name differs
+
+    - name: Render the llama-server launchd plist
+      ansible.builtin.template:
+        src: "{{ repo_root }}/mac/com.local.llama-server.plist.tmpl"
+        dest: "{{ ansible_env.HOME }}/Library/LaunchAgents/com.local.llama-server.plist"
+        mode: "0644"
+      tags: [llama]
+
+    - name: Load and start the llama-server agent (idempotent)
+      ansible.builtin.command: >
+        launchctl bootstrap gui/{{ ansible_user_uid | default(501) }}
+        {{ ansible_env.HOME }}/Library/LaunchAgents/com.local.llama-server.plist
+      register: bootstrap
+      changed_when: "'service already bootstrapped' not in (bootstrap.stderr | default(''))"
+      failed_when: false
+      tags: [llama]
+
+    - name: Render the llama tunnel-proxy launchd plist (exposes the model on the WG interface only)
+      ansible.builtin.template:
+        src: "{{ repo_root }}/mac/com.local.llama-tunnel.plist.tmpl"
+        dest: "{{ ansible_env.HOME }}/Library/LaunchAgents/com.local.llama-tunnel.plist"
+        mode: "0644"
+      tags: [llama, tunnel]
+
+    - name: Load and start the llama tunnel proxy (idempotent)
+      ansible.builtin.command: >
+        launchctl bootstrap gui/{{ ansible_user_uid | default(501) }}
+        {{ ansible_env.HOME }}/Library/LaunchAgents/com.local.llama-tunnel.plist
+      register: tunnel_bootstrap
+      changed_when: "'service already bootstrapped' not in (tunnel_bootstrap.stderr | default(''))"
+      failed_when: false
+      tags: [llama, tunnel]
+
+    - name: Bring up Khoj (localhost, pointed at the local model)
+      ansible.builtin.command:
+        cmd: docker compose -f {{ repo_root }}/compose/khoj.yml up -d
+      environment: "{{ lookup('ansible.builtin.env', '', wantlist=False) | default({}) }}"
+      args:
+        chdir: "{{ repo_root }}"
+      tags: [khoj]
+
+    - name: Verify the local model endpoint responds
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ llama_port }}/v1/models"
+        headers:
+          Authorization: "Bearer {{ llama_api_key }}"
+        status_code: 200
+      retries: 10
+      delay: 3
+      register: llama_health
+      until: llama_health.status == 200
+      tags: [verify, llama]
+
+    # Teardown (only runs with: --tags down)
+    - name: Stop Khoj
+      ansible.builtin.command:
+        cmd: docker compose -f {{ repo_root }}/compose/khoj.yml down
+      tags: [never, down]
+
+    - name: Unload llama-server agent
+      ansible.builtin.command: >
+        launchctl bootout gui/{{ ansible_user_uid | default(501) }}/com.local.llama-server
+      failed_when: false
+      tags: [never, down]
+
+    - name: Unload llama tunnel proxy
+      ansible.builtin.command: >
+        launchctl bootout gui/{{ ansible_user_uid | default(501) }}/com.local.llama-tunnel
+      failed_when: false
+      tags: [never, down]

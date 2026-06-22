@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- mac/com.local.llama-server.plist.tmpl
+     Rendered by ansible/mac.yml into ~/Library/LaunchAgents/ and loaded with launchctl.
+     Serves a tool-capable model on localhost only. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.local.llama-server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/llama-server</string>
+    <string>-m</string>
+    <string>{{ model_path }}</string>
+    <string>--jinja</string>
+    <string>-c</string>
+    <string>{{ llama_ctx }}</string>
+    <string>-ngl</string>
+    <string>999</string>
+    <string>--host</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>{{ llama_port }}</string>
+    <string>--api-key</string>
+    <string>{{ llama_api_key }}</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>{{ ansible_env.HOME }}/Library/Logs/llama-server.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{ ansible_env.HOME }}/Library/Logs/llama-server.err.log</string>
+</dict>
+</plist>

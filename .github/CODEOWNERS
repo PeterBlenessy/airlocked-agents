@@ -1,0 +1,8 @@
+# Default reviewers for everything. Replace with your GitHub handle (and team if any).
+* @OWNER
+
+# Security-sensitive surfaces warrant explicit review.
+/ansible/        @OWNER
+/n8n/            @OWNER
+/SECURITY.md     @OWNER
+/ARCHITECTURE.md @OWNER

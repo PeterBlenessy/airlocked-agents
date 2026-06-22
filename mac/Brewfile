@@ -1,0 +1,27 @@
+# mac/Brewfile — declarative Mac packages. Applied idempotently via `brew bundle`.
+# Pin versions where reproducibility matters.
+
+# Local model server (provides llama-server).
+brew "llama.cpp"
+
+# Container runtime for Khoj (cask if not already present).
+cask "docker"
+
+# Python tooling for agents installed via pipx (keeps them isolated).
+brew "pipx"
+
+# Tunnel to the VPS. (CLI tools; the GUI app is "WireGuard" from the App Store.)
+brew "wireguard-tools"
+
+# Exposes the localhost model on the WireGuard interface only (tunnel-only proxy).
+brew "socat"
+
+# Node/npm — required for the Cua npm install below and for the allowlist guard self-test.
+brew "node"
+
+# Convenience.
+brew "jq"
+brew "huggingface-cli"   # for `make model`
+
+# NOTE: Open Interpreter and the Cua driver are installed via pipx/npm in ansible/mac.yml,
+# not here, because they are app-level tools rather than Homebrew formulae.

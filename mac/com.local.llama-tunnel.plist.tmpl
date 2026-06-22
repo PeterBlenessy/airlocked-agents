@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- mac/com.local.llama-tunnel.plist.tmpl
+     Rendered by ansible/mac.yml into ~/Library/LaunchAgents/ and loaded with launchctl.
+
+     The local model (llama-server) binds to 127.0.0.1 ONLY and never leaves the host.
+     This agent runs a tunnel-only proxy: it listens exclusively on the Mac's WireGuard
+     interface address (MAC_TUNNEL_IP) and forwards to the localhost model. That interface
+     is reachable solely by the VPS WireGuard peer, so the VPS can route SENSITIVE research
+     to the local model over the tunnel — and nothing on the public internet can reach it.
+
+     Requests still need the llama --api-key, so the tunnel is authenticated as well as
+     network-isolated. The proxy only succeeds once wg0 is up; KeepAlive retries until then. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.local.llama-tunnel</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/socat</string>
+    <string>TCP-LISTEN:{{ llama_port }},bind={{ mac_tunnel_ip }},fork,reuseaddr</string>
+    <string>TCP:127.0.0.1:{{ llama_port }}</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>{{ ansible_env.HOME }}/Library/Logs/llama-tunnel.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{ ansible_env.HOME }}/Library/Logs/llama-tunnel.err.log</string>
+</dict>
+</plist>

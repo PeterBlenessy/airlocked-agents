@@ -1,0 +1,11 @@
+# Never commit secrets or local state.
+.env
+secrets/*
+!secrets/.gitkeep
+*.key
+*.pem
+wireguard/*.conf
+!wireguard/*.tmpl
+
+# macOS
+.DS_Store

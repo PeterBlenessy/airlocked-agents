@@ -1,0 +1,51 @@
+{
+  "name": "Inbox to Telegram (read path)",
+  "_comment": "SKELETON — importable starting point. Reconnect credentials and verify node versions in the n8n editor after import. The read path only reads and notifies; it holds no send-path to others.",
+  "nodes": [
+    {
+      "parameters": { "pollTimes": { "item": [ { "mode": "everyMinute" } ] }, "simple": true, "filters": {} },
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [ 240, 300 ],
+      "credentials": { "gmailOAuth2": { "id": "REPLACE", "name": "Gmail account" } }
+    },
+    {
+      "parameters": {
+        "conditions": { "string": [ { "value1": "={{ $json.from }}", "operation": "contains", "value2": "watchlist-domain.com" } ] }
+      },
+      "name": "Filter (watchlist)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [ 460, 300 ]
+    },
+    {
+      "parameters": {
+        "model": "={{ $env.PUBLIC_RESEARCH_MODEL }}",
+        "messages": { "values": [ { "content": "Summarize in 3 lines and classify as action / FYI / spam:\n\n={{ $json.snippet }}" } ] }
+      },
+      "name": "AI Summarize",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [ 680, 300 ],
+      "_comment": "Swap the credential/base URL to the local model for confidential senders."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_ALLOWED_CHAT_ID }}",
+        "text": "=📥 {{ $json.subject }}\n{{ $json.summary }}"
+      },
+      "name": "Telegram → you",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [ 900, 300 ],
+      "credentials": { "telegramApi": { "id": "REPLACE", "name": "Telegram bot" } }
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": { "main": [ [ { "node": "Filter (watchlist)", "type": "main", "index": 0 } ] ] },
+    "Filter (watchlist)": { "main": [ [ { "node": "AI Summarize", "type": "main", "index": 0 } ] ] },
+    "AI Summarize": { "main": [ [ { "node": "Telegram → you", "type": "main", "index": 0 } ] ] }
+  },
+  "settings": {}
+}

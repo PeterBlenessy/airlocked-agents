@@ -1,0 +1,70 @@
+name: ci
+
+# Validate the IaC on every PR and on pushes to main.
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ansible + collections + linters
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible ansible-lint
+          ansible-galaxy collection install community.general
+
+      # Hard gate: syntax must be valid (deterministic, no style opinions).
+      - name: Ansible syntax check
+        env:
+          # Dummy values so inventory/templating resolve during the check.
+          VPS_HOST: example.com
+          VPS_USER: deploy
+        run: |
+          ansible-playbook -i ansible/inventory.ini ansible/mac.yml --syntax-check
+          ansible-playbook -i ansible/inventory.ini ansible/vps.yml --syntax-check
+
+      # Soft gate: ansible-lint is advisory (style/best-practice), not blocking on day one.
+      - name: Ansible lint (advisory)
+        continue-on-error: true
+        run: ansible-lint ansible/*.yml
+
+      # Hard gate: Compose files must be structurally valid.
+      - name: Validate Docker Compose
+        run: |
+          cp .env.example .env   # placeholder values are fine for `config`
+          docker compose -f compose/n8n.yml --env-file .env config -q
+          docker compose -f compose/khoj.yml --env-file .env config -q
+          echo "Compose files valid."
+
+      # Hard gate: JSON workflows and shell scripts must parse.
+      - name: Validate JSON + shell
+        run: |
+          for f in n8n/*.json; do python -c "import json,sys; json.load(open('$f'))"; echo "OK $f"; done
+          for f in scripts/*.sh mac/*.sh; do bash -n "$f"; echo "OK $f"; done
+
+      - name: ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: "."
+        continue-on-error: true   # advisory
+
+      # Safety net: fail if a secret file or .env was ever committed.
+      - name: Guard against committed secrets
+        run: |
+          MATCHES="$(git ls-files | grep -E '(^\.env$|\.key$|\.pem$|wireguard/.*\.conf$|^secrets/)' | grep -v '^secrets/\.gitkeep$' || true)"
+          if [ -n "$MATCHES" ]; then
+            echo "::error::Secret-like files are tracked:"; echo "$MATCHES"
+            exit 1
+          fi
+          echo "No tracked secrets — good."

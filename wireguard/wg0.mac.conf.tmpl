@@ -1,0 +1,12 @@
+# wireguard/wg0.mac.conf.tmpl — Mac side of the Mac<->VPS tunnel.
+# Rendered with your keys; import into the WireGuard app and activate.
+[Interface]
+PrivateKey = {{ lookup('env','WG_MAC_PRIVATE_KEY') }}
+Address = {{ lookup('env','MAC_TUNNEL_IP') }}/24
+
+[Peer]
+PublicKey = {{ lookup('env','WG_VPS_PUBLIC_KEY') }}
+Endpoint = {{ lookup('env','VPS_HOST') }}:{{ lookup('env','WG_LISTEN_PORT') }}
+# Only route tunnel traffic — keep normal traffic off the VPS.
+AllowedIPs = {{ lookup('env','VPS_TUNNEL_IP') }}/32
+PersistentKeepalive = 25

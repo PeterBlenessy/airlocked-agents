@@ -1,0 +1,9 @@
+# wireguard/wg0.vps.conf.tmpl — VPS side. Rendered to /etc/wireguard/wg0.conf by ansible.
+[Interface]
+PrivateKey = {{ lookup('env','WG_VPS_PRIVATE_KEY') }}
+Address = {{ lookup('env','VPS_TUNNEL_IP') }}/24
+ListenPort = {{ lookup('env','WG_LISTEN_PORT') }}
+
+[Peer]
+PublicKey = {{ lookup('env','WG_MAC_PUBLIC_KEY') }}
+AllowedIPs = {{ lookup('env','MAC_TUNNEL_IP') }}/32

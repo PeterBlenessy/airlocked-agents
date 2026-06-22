@@ -1,0 +1,22 @@
+# compose/khoj.yml — Khoj on the Mac, localhost only, talking to your llama.cpp server.
+# Rendered/used by ansible/mac.yml. The docs folder is mounted READ-ONLY on purpose.
+services:
+  khoj:
+    image: ${KHOJ_IMAGE:-ghcr.io/khoj-ai/khoj:latest}
+    container_name: khoj
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${KHOJ_PORT:-42110}:42110"     # localhost only
+    extra_hosts:
+      - "host.docker.internal:host-gateway"        # reach llama.cpp on the host
+    environment:
+      # Point Khoj's chat model at the local llama.cpp OpenAI-compatible endpoint.
+      - KHOJ_DEFAULT_CHAT_MODEL=local
+      - OPENAI_API_BASE=http://host.docker.internal:${LLAMA_PORT:-8080}/v1
+      - OPENAI_API_KEY=${LLAMA_API_KEY:-local-only}
+    volumes:
+      - khoj_data:/root/.khoj
+      - ${KHOJ_DOCS_DIR}:/data/research:ro          # your corpus, READ-ONLY
+
+volumes:
+  khoj_data:
