@@ -40,9 +40,15 @@ fi
 # VPS firewall: inbound must be EXACTLY {22, 443, WG} — nothing else (checked over SSH).
 if [ -n "${VPS_HOST:-}" ]; then
   WG_PORT="${WG_LISTEN_PORT:-51820}"
-  RULES="$(ssh "${VPS_USER}@${VPS_HOST}" 'sudo ufw status' 2>/dev/null || true)"
+  # Once SSH is locked to the tunnel, manage over the tunnel IP, not the public host.
+  if [ "${SSH_HARDENED:-false}" = "true" ]; then
+    SSH_TARGET="${VPS_TUNNEL_IP:-10.10.0.1}"
+  else
+    SSH_TARGET="${VPS_HOST}"
+  fi
+  RULES="$(ssh "${VPS_USER}@${SSH_TARGET}" 'sudo ufw status' 2>/dev/null || true)"
   if echo "$RULES" | grep -q "Status: active"; then
-    pass "VPS ufw active"
+    pass "VPS ufw active (via ${SSH_TARGET})"
     echo "$RULES" | grep -qE "5678.*ALLOW" \
       && fail "n8n port 5678 is exposed on the VPS — it must be localhost + reverse proxy only" \
       || pass "n8n raw port not publicly exposed"
@@ -54,8 +60,18 @@ if [ -n "${VPS_HOST:-}" ]; then
     else
       pass "VPS firewall inbound is exactly 22 (SSH), 443 (HTTPS), ${WG_PORT} (WireGuard)"
     fi
+    # SSH exposure: must be tunnel-locked once hardened.
+    if [ "${SSH_HARDENED:-false}" = "true" ]; then
+      if echo "$RULES" | grep -E '^22/tcp' | grep -qi 'Anywhere'; then
+        fail "SSH (22) is still open to Anywhere despite SSH_HARDENED=true — re-run 'make harden'"
+      else
+        pass "SSH (22) restricted to the tunnel (not Anywhere)"
+      fi
+    elif echo "$RULES" | grep -E '^22/tcp' | grep -qi 'Anywhere'; then
+      printf "  \033[33m!\033[0m %s\n" "SSH (22) is open to Anywhere — after the tunnel is up, run 'make harden' to lock it"
+    fi
   else
-    fail "VPS ufw not active or unreachable"
+    fail "VPS ufw not active or unreachable (tried ${SSH_TARGET})"
   fi
 fi
 

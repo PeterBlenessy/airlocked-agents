@@ -29,6 +29,10 @@ These cannot be made deterministic because they require interactive consent or o
 - Generate on both ends: `wg genkey | tee priv | wg pubkey`.
 - Put the four keys (`WG_MAC_PRIVATE_KEY`, `WG_MAC_PUBLIC_KEY`, `WG_VPS_PRIVATE_KEY`,
   `WG_VPS_PUBLIC_KEY`) into `.env`, then `make tunnel`.
+- **Then harden SSH (recommended):** with the tunnel up and the Mac connected, run
+  `make harden` to lock VPS SSH (22) to the tunnel peer, and set `SSH_HARDENED=true` in `.env`.
+  Order matters — the first `make vps` runs over public SSH, so harden only *after* the tunnel
+  works. From then on, `make vps`/`make verify` reach the box over `VPS_TUNNEL_IP`.
 
 ## 5. Reverse proxy + TLS for n8n (one-time)
 - Point `N8N_HOST` DNS at the VPS, and put Caddy/Traefik/nginx in front of `127.0.0.1:5678`

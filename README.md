@@ -108,8 +108,9 @@ every PR (`.github/workflows/ci.yml`).
 cp .env.example .env          # then edit .env with your values
 make help                     # list targets
 make mac                      # provision the Mac (idempotent)
-make vps                      # provision the VPS (idempotent)
+make vps                      # provision the VPS (idempotent, over public SSH)
 make tunnel                   # bring up the WireGuard link
+make harden                   # lock VPS SSH to the tunnel (after the tunnel is up; recommended)
 make workflows                # import the n8n workflow skeletons
 make verify                   # run health + boundary checks
 ```
@@ -123,7 +124,7 @@ Each target is safe to re-run; Ansible converges to the declared state. To tear 
 ## Security notes baked in
 
 - Local services (llama.cpp, Khoj) bind to `127.0.0.1`; the model is re-exposed to the VPS only on the WireGuard tunnel interface — verified by `make verify`.
-- The VPS firewall allows exactly three inbound rules — SSH (22), HTTPS (443), WireGuard (UDP) — with HTTPS the only application ingress; `make verify` asserts the exact set.
+- The VPS firewall allows exactly three inbound rules — SSH (22), HTTPS (443), WireGuard (UDP) — with HTTPS the only application ingress; `make verify` asserts the exact set. After `make harden`, SSH is locked to the WireGuard tunnel peer (no public SSH).
 - The n8n write path is credential-isolated and human-gated; the allowlist guard is embedded directly in `n8n/workflow.write-path.json` (canonical source: `n8n/allowlist.code.js`), so an import is guarded out of the box.
 - Sensitive research routes to the local model over the tunnel (via a socat proxy on the Mac); nothing private egresses to the cloud.
 - `make verify` runs the allowlist guard self-test (`scripts/injection-selftest.sh`); the full end-to-end prompt-injection test is manual — see `scripts/injection-selftest.md`.

@@ -13,6 +13,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `scripts/injection-selftest.sh`: automated allowlist-guard unit test, now run by `make verify`.
 - `.devcontainer/`: a Linux dev environment mirroring CI (Python 3.12, ansible + ansible-lint +
   community.general, docker compose, shellcheck, node) for validating the IaC locally.
+- SSH hardening: `make harden` locks VPS SSH (22) to the WireGuard tunnel peer
+  (`MAC_TUNNEL_IP/32`) plus an optional `ADMIN_IP` break-glass, removing public SSH. Driven by
+  `SSH_HARDENED` in `.env`; ansible inventory and `make verify` then manage the box over
+  `VPS_TUNNEL_IP`. A WireGuard-handshake safety gate aborts hardening if the tunnel isn't up,
+  so it can't lock you out. `make verify` asserts SSH is tunnel-only when hardened.
 
 ### Changed
 - The write-path workflow now embeds the allowlist guard inline (was a paste-me placeholder),

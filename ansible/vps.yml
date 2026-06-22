@@ -8,6 +8,12 @@
     repo_root: "{{ playbook_dir }}/.."
     app_dir: /opt/airlocked-agents
     wg_listen_port: "{{ lookup('env','WG_LISTEN_PORT') | default('51820', true) }}"
+    mac_tunnel_ip: "{{ lookup('env','MAC_TUNNEL_IP') | default('10.10.0.2', true) }}"
+    admin_ip: "{{ lookup('env','ADMIN_IP') | default('', true) }}"
+    # SSH_HARDENED gates SSH exposure; `make harden` overrides it to true via -e.
+    ssh_hardened: "{{ lookup('env','SSH_HARDENED') | default('false', true) | bool }}"
+    # SSH source allowlist when hardened: the Mac's tunnel peer, plus an optional break-glass IP.
+    ssh_allowed_sources: "{{ [mac_tunnel_ip] + ([admin_ip] if (admin_ip | length > 0) else []) }}"
 
   tasks:
     # ---- Base: Docker ----
@@ -73,16 +79,66 @@
         - { dir: outgoing, pol: allow }
       tags: [firewall]
 
-    - name: Allow SSH and HTTPS (the only public ingress) and the WG port
+    - name: Allow HTTPS — the only public application ingress (Telegram webhook via the proxy)
       community.general.ufw:
         rule: allow
-        port: "{{ item }}"
-        proto: "{{ 'udp' if item == wg_listen_port else 'tcp' }}"
-      loop:
-        - "22"
-        - "443"
-        - "{{ wg_listen_port }}"
+        port: "443"
+        proto: tcp
       tags: [firewall]
+
+    - name: Allow the WireGuard handshake port (UDP, from anywhere — the Mac dials in)
+      community.general.ufw:
+        rule: allow
+        port: "{{ wg_listen_port }}"
+        proto: udp
+      tags: [firewall]
+
+    # ---- SSH: public during initial provisioning, locked to the tunnel after hardening ----
+    - name: Allow SSH from anywhere (only while un-hardened — first provisioning needs it)
+      community.general.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+      when: not ssh_hardened
+      tags: [firewall]
+
+    # Safety gate: never lock SSH to the tunnel unless the Mac peer has actually handshaken,
+    # otherwise hardening would lock you out of the box.
+    - name: Require a recent WireGuard handshake before locking SSH to the tunnel
+      ansible.builtin.shell: |
+        set -o pipefail
+        now=$(date +%s); ok=1
+        while read -r _ ts; do
+          if [ -n "$ts" ] && [ "$ts" -gt 0 ] && [ $((now - ts)) -lt 300 ]; then ok=0; fi
+        done < <(wg show wg0 latest-handshakes)
+        if [ "$ok" -ne 0 ]; then
+          echo "No WireGuard handshake in the last 5 min — run 'make tunnel' and connect the Mac first." >&2
+        fi
+        exit "$ok"
+      args:
+        executable: /bin/bash
+      changed_when: false
+      when: ssh_hardened
+      tags: [firewall, harden]
+
+    - name: Lock SSH to the WireGuard tunnel peer (and optional ADMIN_IP)
+      community.general.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+        from_ip: "{{ item }}"
+      loop: "{{ ssh_allowed_sources }}"
+      when: ssh_hardened
+      tags: [firewall, harden]
+
+    - name: Remove the public (from-anywhere) SSH rule once hardened
+      community.general.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+        delete: true
+      when: ssh_hardened
+      tags: [firewall, harden]
 
     - name: Enable ufw
       community.general.ufw:

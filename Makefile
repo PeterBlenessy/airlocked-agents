@@ -38,6 +38,13 @@ tunnel: check-env ## Bring up the WireGuard Mac<->VPS tunnel
 	$(ANSIBLE) ansible/vps.yml --limit vps --tags wireguard
 	@echo "On the Mac, import wireguard/wg0.mac.conf (rendered) into the WireGuard app and activate it."
 
+.PHONY: harden
+harden: check-env ## Lock VPS SSH to the WireGuard tunnel (run AFTER `make tunnel` is up)
+	@echo "Locking SSH (22) to the tunnel. Requires an active WireGuard handshake; aborts if not."
+	$(ANSIBLE) ansible/vps.yml --limit vps --tags firewall -e ssh_hardened=true
+	@echo "SSH is now tunnel-only. Set SSH_HARDENED=true in .env so future runs stay hardened"
+	@echo "and management routes over VPS_TUNNEL_IP."
+
 .PHONY: workflows
 workflows: check-env ## Import the n8n workflow skeletons via the n8n CLI
 	@echo "Importing n8n workflows (verify/finish them in the editor afterwards)..."
