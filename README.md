@@ -81,6 +81,7 @@ airlocked-agents/
 │   ├── wg0.mac.conf.tmpl
 │   └── wg0.vps.conf.tmpl
 ├── scripts/
+│   ├── setup.sh             # the guided installer (`make setup`) — start here
 │   ├── verify.sh            # health + boundary checks (binding, exact firewall, guard test)
 │   ├── injection-selftest.sh      # automated guard unit test (run by make verify)
 │   ├── bootstrap-repo.sh    # git init + gh repo create + push (with secret guard)
@@ -104,6 +105,20 @@ every PR (`.github/workflows/ci.yml`).
 
 ## Quick start
 
+The low-friction path is one command — a guided installer that checks your system, offers to
+install what's missing, collects config with live validation, **generates your WireGuard keys**,
+and runs everything in the right order:
+
+```bash
+make setup                    # interactive, idempotent — start here
+```
+
+`make doctor` reports what's present/missing without changing anything. Re-run `make setup`
+any time to change values or finish skipped steps.
+
+<details>
+<summary>Prefer to drive it yourself? The individual targets:</summary>
+
 ```bash
 cp .env.example .env          # then edit .env with your values
 make help                     # list targets
@@ -114,8 +129,14 @@ make harden                   # lock VPS SSH to the tunnel (after the tunnel is 
 make workflows                # import the n8n workflow skeletons
 make verify                   # run health + boundary checks
 ```
+</details>
 
 Each target is safe to re-run; Ansible converges to the declared state. To tear down the container stacks: `make down`.
+
+What stays manual even with `make setup`: the interactive consent steps that *cannot* be
+automated — clicking **Connect** on the Gmail OAuth credential in the n8n editor, creating the
+Telegram bot in `@BotFather`, and running Suna's setup wizard. `make setup` walks you up to each
+and validates what it can (e.g. it tests your Telegram token and auto-detects your chat id).
 
 ## The determinism guarantee, restated
 

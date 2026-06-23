@@ -1,6 +1,13 @@
-# docs-MANUAL-STEPS.md — the irreducible 5 (everything else is `make`)
+# docs-MANUAL-STEPS.md — the irreducible interactive bits
 
-These cannot be made deterministic because they require interactive consent or out-of-band registration. Do them once, paste results into `.env`, then re-run the relevant `make` target.
+> **Easiest path: run `make setup`.** The guided installer walks you through everything below,
+> validates what it can (it tests your Telegram bot token and auto-detects your chat id), and
+> **generates your WireGuard keys for you** — so step 4 is now automatic. This file documents
+> what's happening under the hood and what genuinely still needs you.
+
+These steps require interactive consent or out-of-band registration, so they can't be fully
+deterministic. `make setup` collects them; or do them by hand and paste results into `.env`,
+then re-run the relevant `make` target.
 
 ## 1. Telegram bot token
 - In Telegram, message `@BotFather` → `/newbot` → copy the token.
@@ -25,10 +32,11 @@ These cannot be made deterministic because they require interactive consent or o
   Requires `make tunnel` up first; verify with
   `curl -H "Authorization: Bearer $LLAMA_API_KEY" $LOCAL_MODEL_BASE_URL/models` from the VPS.
 
-## 4. WireGuard keys
-- Generate on both ends: `wg genkey | tee priv | wg pubkey`.
-- Put the four keys (`WG_MAC_PRIVATE_KEY`, `WG_MAC_PUBLIC_KEY`, `WG_VPS_PRIVATE_KEY`,
-  `WG_VPS_PUBLIC_KEY`) into `.env`, then `make tunnel`.
+## 4. WireGuard keys — automated by `make setup`
+- `make setup` generates both key pairs with `wg genkey`/`wg pubkey` and writes all four
+  (`WG_MAC_PRIVATE_KEY`, `WG_MAC_PUBLIC_KEY`, `WG_VPS_PRIVATE_KEY`, `WG_VPS_PUBLIC_KEY`) to `.env`.
+- To do it by hand instead: `wg genkey | tee priv | wg pubkey` on both ends, paste into `.env`,
+  then `make tunnel`.
 - **Then harden SSH (recommended):** with the tunnel up and the Mac connected, run
   `make harden` to lock VPS SSH (22) to the tunnel peer, and set `SSH_HARDENED=true` in `.env`.
   Order matters — the first `make vps` runs over public SSH, so harden only *after* the tunnel

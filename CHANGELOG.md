@@ -6,6 +6,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 ### Added
+- **`make setup` — a guided, low-friction installer (`scripts/setup.sh`).** Inspects the system
+  and offers to install missing prerequisites, collects `.env` config interactively with live
+  validation (tests the Telegram token and auto-detects the chat id, tests VPS SSH), generates
+  both WireGuard key pairs automatically, and runs the make targets in the correct order
+  (including harden-after-tunnel). Idempotent and re-runnable. `make doctor` reports system
+  readiness without changing anything.
 - `bootstrap-repo.sh` now sets GitHub topics and the repo description automatically.
 - Tunnel-only model proxy: `mac/com.local.llama-tunnel.plist.tmpl` (socat) re-exposes the
   localhost model on the WireGuard interface so the VPS can route sensitive research to the
