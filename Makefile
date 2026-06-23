@@ -17,9 +17,17 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 	  | awk 'BEGIN{FS=":.*?## "}{printf "  \033[1m%-14s\033[0m %s\n", $$1, $$2}'
 
+.PHONY: setup
+setup: ## Guided, interactive setup — checks the system, collects config, provisions (start here)
+	bash scripts/setup.sh
+
+.PHONY: doctor
+doctor: ## Report what's installed/missing for a setup, then exit
+	bash scripts/setup.sh --doctor
+
 .PHONY: check-env
 check-env: ## Fail early if .env is missing
-	@test -f .env || { echo "Missing .env — run: cp .env.example .env && edit it"; exit 1; }
+	@test -f .env || { echo "Missing .env — run 'make setup' (guided) or: cp .env.example .env && edit it"; exit 1; }
 
 .PHONY: mac
 mac: check-env ## Provision the Mac: llama.cpp + tunnel proxy, Khoj, Open Interpreter, Cua (idempotent)
