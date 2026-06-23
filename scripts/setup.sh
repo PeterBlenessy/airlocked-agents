@@ -13,6 +13,10 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 ENV_FILE="$ROOT/.env"
+# Transactional manifest: every change setup makes is appended here so `make teardown` can
+# replay it in reverse. Crucially, packages are recorded ONLY when setup actually installs
+# them (i.e. they were absent before), so teardown never removes tools you already had.
+MANIFEST="$ROOT/.airlocked/manifest.tsv"
 
 # ---- pretty output ----------------------------------------------------------
 if [ -t 1 ]; then
@@ -28,6 +32,19 @@ warn() { printf "  %b!%b %s\n" "$Y" "$R" "$1"; }
 die()  { printf "%b%s%b\n" "$RED" "$1" "$R" >&2; exit 1; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# ---- manifest (what teardown will reverse) ----------------------------------
+rec() { mkdir -p "$(dirname "$MANIFEST")"; local IFS=$'\t'; printf '%s\n' "$*" >> "$MANIFEST"; }
+rec_header() { mkdir -p "$(dirname "$MANIFEST")"; printf '# setup run %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "$MANIFEST"; }
+
+# Parse the Brewfile so the recorded names track the real package list.
+brewfile_formulae() { sed -nE 's/^brew "([^"]+)".*/\1/p' "$ROOT/mac/Brewfile"; }
+brewfile_casks()    { sed -nE 's/^cask "([^"]+)".*/\1/p' "$ROOT/mac/Brewfile"; }
+brew_has_formula()  { brew list --formula --versions "$1" >/dev/null 2>&1; }
+brew_has_cask()     { brew list --cask --versions "$1" >/dev/null 2>&1; }
+pipx_has()          { pipx list 2>/dev/null | grep -qi -- "$1"; }
+npm_has()           { npm ls -g --depth=0 "$1" >/dev/null 2>&1; }
+expand_tilde()      { printf '%s' "${1/#\~/$HOME}"; }
 
 # yes/no prompt, default No unless second arg is "y"
 confirm() {
@@ -251,18 +268,54 @@ collect_full() {
 # ---- execution --------------------------------------------------------------
 run_local() {
   hdr "Provision the local core"
-  if confirm "Download the model now? (multi-GB — skip if you already have it)" n; then make model; fi
-  confirm "Run 'make mac' to install and start the local core?" y && make mac
+
+  if confirm "Download the model now? (multi-GB — skip if you already have it)" n; then
+    local mp; mp="$(expand_tilde "$(env_get MODEL_DIR)")/$(env_get MODEL_FILE)"
+    local had=0; [ -f "$mp" ] && had=1
+    make model
+    [ "$had" -eq 0 ] && [ -f "$mp" ] && rec model "$mp"
+  fi
+
+  if confirm "Run 'make mac' to install and start the local core?" y; then
+    # Snapshot package state BEFORE installing, so we record only what we add.
+    local missing_f=() missing_c=() miss_pipx=0 miss_npm=0 f
+    while IFS= read -r f; do [ -n "$f" ] && ! brew_has_formula "$f" && missing_f+=("$f"); done < <(brewfile_formulae)
+    while IFS= read -r f; do [ -n "$f" ] && ! brew_has_cask "$f" && missing_c+=("$f"); done < <(brewfile_casks)
+    pipx_has open-interpreter || miss_pipx=1
+    npm_has @cua/cli || miss_npm=1
+
+    make mac
+
+    # Record only packages that were absent before and are present now.
+    for f in "${missing_f[@]:-}"; do [ -n "$f" ] && brew_has_formula "$f" && rec brew_formula "$f"; done
+    for f in "${missing_c[@]:-}"; do [ -n "$f" ] && brew_has_cask "$f" && rec brew_cask "$f"; done
+    [ "$miss_pipx" -eq 1 ] && pipx_has open-interpreter && rec pipx open-interpreter
+    [ "$miss_npm" -eq 1 ] && npm_has @cua/cli && rec npm_global @cua/cli
+    # Artifacts make mac creates (removal is idempotent, so safe to always record).
+    rec launchd com.local.llama-server
+    rec launchd com.local.llama-tunnel
+    rec file "$HOME/Library/LaunchAgents/com.local.llama-server.plist"
+    rec file "$HOME/Library/LaunchAgents/com.local.llama-tunnel.plist"
+    rec file "$HOME/Library/Logs/llama-server.log"
+    rec file "$HOME/Library/Logs/llama-server.err.log"
+    rec file "$HOME/Library/Logs/llama-tunnel.log"
+    rec file "$HOME/Library/Logs/llama-tunnel.err.log"
+    rec compose "$ROOT/compose/khoj.yml"
+  fi
+
   confirm "Run 'make verify'?" y && make verify
 }
 
 run_full() {
   run_local
   hdr "Provision the VPS"
-  confirm "Run 'make vps' (provisions the VPS over public SSH)?" y && make vps
+  if confirm "Run 'make vps' (provisions the VPS over public SSH)?" y; then
+    make vps && rec vps "$(env_get VPS_HOST)" "$(env_get VPS_USER)"
+  fi
   hdr "Tunnel"
   confirm "Run 'make tunnel'?" y && {
     make tunnel
+    rec note "Remove the airlocked-agents tunnel from the WireGuard app on the Mac (GUI)."
     say "  ${Y}Now import the rendered wireguard/wg0.mac.conf into the WireGuard app and activate it.${R}"
     say "  ${DIM}(WireGuard's macOS app needs the GUI; this is the one bit we can't do for you.)${R}"
     confirm "Tunnel activated and connected?" n && {
@@ -286,7 +339,8 @@ main() {
   local mode; mode="$(choose_mode)"
   [ "$mode" = "3" ] && exit 0
 
-  [ -f "$ENV_FILE" ] || { cp "$ROOT/.env.example" "$ENV_FILE"; ok "Created .env from template."; }
+  rec_header
+  [ -f "$ENV_FILE" ] || { cp "$ROOT/.env.example" "$ENV_FILE"; ok "Created .env from template."; rec env "$ENV_FILE"; }
 
   case "$mode" in
     1) collect_local; run_local ;;
