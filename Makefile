@@ -25,6 +25,10 @@ setup: ## Guided, interactive setup — checks the system, collects config, prov
 doctor: ## Report what's installed/missing for a setup, then exit
 	bash scripts/setup.sh --doctor
 
+.PHONY: teardown
+teardown: ## Reverse what `make setup` did (replays the manifest; never touches tools you already had)
+	bash scripts/teardown.sh
+
 .PHONY: check-env
 check-env: ## Fail early if .env is missing
 	@test -f .env || { echo "Missing .env — run 'make setup' (guided) or: cp .env.example .env && edit it"; exit 1; }

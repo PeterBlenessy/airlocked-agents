@@ -82,6 +82,7 @@ airlocked-agents/
 │   └── wg0.vps.conf.tmpl
 ├── scripts/
 │   ├── setup.sh             # the guided installer (`make setup`) — start here
+│   ├── teardown.sh          # reverses setup via its manifest (`make teardown`)
 │   ├── verify.sh            # health + boundary checks (binding, exact firewall, guard test)
 │   ├── injection-selftest.sh      # automated guard unit test (run by make verify)
 │   ├── bootstrap-repo.sh    # git init + gh repo create + push (with secret guard)
@@ -132,6 +133,20 @@ make verify                   # run health + boundary checks
 </details>
 
 Each target is safe to re-run; Ansible converges to the declared state. To tear down the container stacks: `make down`.
+
+### Uninstall / rollback
+
+`make setup` writes a **transactional manifest** (`.airlocked/manifest.tsv`, gitignored) recording
+every change it makes — and it records a package as installed *only if it was absent beforehand*.
+
+```bash
+make teardown     # replays the manifest in reverse, undoing only what setup did
+```
+
+Because it follows the manifest rather than guessing, `make teardown` removes the services,
+containers, volumes, launchd agents, model file, configs, and VPS state that setup created — but
+**never uninstalls tools you already had**. Every destructive step asks first. (`make down` just
+stops the container stacks; `make teardown` is the full reversal.)
 
 What stays manual even with `make setup`: the interactive consent steps that *cannot* be
 automated — clicking **Connect** on the Gmail OAuth credential in the n8n editor, creating the

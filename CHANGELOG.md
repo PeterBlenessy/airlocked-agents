@@ -12,6 +12,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   both WireGuard key pairs automatically, and runs the make targets in the correct order
   (including harden-after-tunnel). Idempotent and re-runnable. `make doctor` reports system
   readiness without changing anything.
+- **`make teardown` — clean uninstall via a transactional manifest.** `make setup` now records
+  every change it makes to `.airlocked/manifest.tsv` (gitignored), recording a package as
+  installed only if it was absent beforehand. `make teardown` replays that manifest in reverse,
+  removing only what setup created — services, containers, volumes, launchd agents, model file,
+  configs, and VPS state — and never uninstalling tools you already had. Every destructive step
+  prompts first.
 - `bootstrap-repo.sh` now sets GitHub topics and the repo description automatically.
 - Tunnel-only model proxy: `mac/com.local.llama-tunnel.plist.tmpl` (socat) re-exposes the
   localhost model on the WireGuard interface so the VPS can route sensitive research to the
