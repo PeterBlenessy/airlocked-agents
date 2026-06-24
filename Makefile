@@ -25,6 +25,10 @@ setup: ## Guided, interactive setup — checks the system, collects config, prov
 doctor: ## Report what's installed/missing for a setup, then exit
 	bash scripts/setup.sh --doctor
 
+.PHONY: setup-dryrun
+setup-dryrun: ## Preview a setup: show exactly what would be installed/changed, touching nothing
+	bash scripts/setup.sh --dry-run
+
 .PHONY: teardown
 teardown: ## Reverse what `make setup` did (replays the manifest; never touches tools you already had)
 	bash scripts/teardown.sh

@@ -117,6 +117,10 @@ make setup                    # interactive, idempotent — start here
 `make doctor` reports what's present/missing without changing anything. Re-run `make setup`
 any time to change values or finish skipped steps.
 
+Nervous about running it on your daily machine? **`make setup-dryrun`** runs the whole wizard
+and prints exactly what it *would* install, change, and write to `.env` — installing nothing,
+writing nothing, touching nothing. Preview first, then run for real when you're comfortable.
+
 <details>
 <summary>Prefer to drive it yourself? The individual targets:</summary>
 

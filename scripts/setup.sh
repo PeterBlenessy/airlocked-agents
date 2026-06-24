@@ -33,6 +33,11 @@ die()  { printf "%b%s%b\n" "$RED" "$1" "$R" >&2; exit 1; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# ---- dry run ----------------------------------------------------------------
+DRY_RUN=0
+is_dry() { [ "$DRY_RUN" = "1" ]; }
+plan()   { printf "  %b•%b %s\n" "$C" "$R" "$*"; }
+
 # ---- manifest (what teardown will reverse) ----------------------------------
 rec() { mkdir -p "$(dirname "$MANIFEST")"; local IFS=$'\t'; printf '%s\n' "$*" >> "$MANIFEST"; }
 rec_header() { mkdir -p "$(dirname "$MANIFEST")"; printf '# setup run %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "$MANIFEST"; }
@@ -132,6 +137,7 @@ doctor() {
 # Offers to install whatever doctor() recorded in REQUIRED_MISSING.
 offer_installs() {
   if [ "${#REQUIRED_MISSING[@]}" -eq 0 ]; then ok "All required tools present."; return 0; fi
+  if is_dry; then warn "Would offer to install: ${REQUIRED_MISSING[*]}"; return 0; fi
   hdr "Install missing prerequisites"
   local m
   for m in "${REQUIRED_MISSING[@]}"; do
@@ -176,6 +182,7 @@ collect_local() {
 }
 
 gen_wireguard_keys() {
+  is_dry && { plan "Generate two WireGuard key pairs (WG_MAC_*, WG_VPS_*)"; return; }
   have wg || { if confirm "WireGuard tools needed to generate keys. Install wireguard-tools via brew?" y; then brew install wireguard-tools; fi; }
   have wg || { warn "wg not available — skipping key generation; fill WG_* in .env manually."; return; }
   if [ -n "$(env_get WG_MAC_PRIVATE_KEY)" ] && [[ "$(env_get WG_MAC_PRIVATE_KEY)" != __* ]]; then
@@ -328,10 +335,61 @@ run_full() {
   say "  credential (click Connect), and run Suna's setup wizard on the VPS (see docs-MANUAL-STEPS.md)."
 }
 
+# ---- dry-run plan -----------------------------------------------------------
+preview_env() {  # print the (temp) .env, masking secret-looking values
+  local line k v
+  while IFS= read -r line; do
+    case "$line" in ''|\#*) continue ;; esac
+    k="${line%%=*}"; v="${line#*=}"
+    if printf '%s' "$k" | grep -qiE 'TOKEN|KEY|SECRET|PASSWORD'; then [ -n "$v" ] && v="********"; fi
+    printf "      %s=%s\n" "$k" "$v"
+  done < "$ENV_FILE"
+}
+
+print_plan() {
+  local mode="$1" f miss_f=() miss_c=()
+  hdr "Plan — what a real run would do (nothing below has happened)"
+
+  [ "${#REQUIRED_MISSING[@]}" -gt 0 ] && plan "Offer to install prerequisites: ${REQUIRED_MISSING[*]}"
+
+  while IFS= read -r f; do [ -n "$f" ] && ! brew_has_formula "$f" && miss_f+=("$f"); done < <(brewfile_formulae)
+  while IFS= read -r f; do [ -n "$f" ] && ! brew_has_cask "$f" && miss_c+=("$f"); done < <(brewfile_casks)
+  plan "Run 'make mac', which would:"
+  if [ "${#miss_f[@]}" -gt 0 ]; then say "      - brew install: ${miss_f[*]}"; else say "      - brew: all Brewfile formulae already present"; fi
+  [ "${#miss_c[@]}" -gt 0 ] && say "      - brew install --cask: ${miss_c[*]}"
+  pipx_has open-interpreter || say "      - pipx install open-interpreter"
+  npm_has @cua/cli || say "      - npm install -g @cua/cli (best-effort)"
+  say "      - load launchd agents: com.local.llama-server, com.local.llama-tunnel"
+  say "      - start the Khoj container (compose/khoj.yml)"
+
+  local mp; mp="$(expand_tilde "$(env_get MODEL_DIR)")/$(env_get MODEL_FILE)"
+  if [ -f "$mp" ]; then say "      - model already present (no download): $mp"; else plan "Download the model (multi-GB) to $mp"; fi
+
+  plan "Run 'make verify' (health + boundary checks)"
+
+  if [ "$mode" = "2" ]; then
+    plan "Run 'make vps' on '$(env_get VPS_HOST)': docker, n8n, ufw (22/443/WG), WireGuard, clone Suna"
+    plan "Run 'make tunnel' (then you import wg0.mac.conf into the WireGuard app)"
+    plan "Run 'make harden' (lock VPS SSH to the tunnel)"
+    plan "Run 'make workflows' (import the n8n skeletons)"
+    say  "      - still manual after: connect Gmail OAuth in n8n, run Suna's setup.py"
+  fi
+
+  plan "Record every change to .airlocked/manifest.tsv so 'make teardown' can reverse it"
+
+  hdr "Config that would be written to .env (secrets masked)"
+  preview_env
+}
+
 # ---- main -------------------------------------------------------------------
 main() {
+  case "${1:-}" in
+    --doctor) say "${B}airlocked-agents — system check${R}"; doctor; exit 0 ;;
+    --dry-run|--plan) DRY_RUN=1 ;;
+  esac
+
   say "${B}airlocked-agents — guided setup${R}"
-  if [ "${1:-}" = "--doctor" ]; then doctor; exit 0; fi
+  is_dry && say "  ${Y}DRY RUN — nothing will be installed, changed, or written; you'll get a plan only.${R}"
 
   doctor
   offer_installs
@@ -339,14 +397,29 @@ main() {
   local mode; mode="$(choose_mode)"
   [ "$mode" = "3" ] && exit 0
 
-  rec_header
-  [ -f "$ENV_FILE" ] || { cp "$ROOT/.env.example" "$ENV_FILE"; ok "Created .env from template."; rec env "$ENV_FILE"; }
+  local tmpd=""
+  if is_dry; then
+    # Work on throwaway copies so config collection touches nothing real.
+    tmpd="$(mktemp -d)"
+    if [ -f "$ENV_FILE" ]; then cp "$ENV_FILE" "$tmpd/.env"; else cp "$ROOT/.env.example" "$tmpd/.env"; fi
+    ENV_FILE="$tmpd/.env"; MANIFEST="$tmpd/manifest.tsv"
+  else
+    rec_header
+    [ -f "$ENV_FILE" ] || { cp "$ROOT/.env.example" "$ENV_FILE"; ok "Created .env from template."; rec env "$ENV_FILE"; }
+  fi
 
   case "$mode" in
-    1) collect_local; run_local ;;
-    2) collect_full;  run_full  ;;
+    1) collect_local; if is_dry; then print_plan 1; else run_local; fi ;;
+    2) collect_full;  if is_dry; then print_plan 2; else run_full;  fi ;;
     *) die "Unknown choice: $mode" ;;
   esac
+
+  if is_dry; then
+    [ -n "$tmpd" ] && rm -rf "$tmpd" 2>/dev/null
+    hdr "Dry run complete"
+    ok "Nothing was installed, changed, or written. Re-run without --dry-run to apply."
+    exit 0
+  fi
 
   hdr "Done"
   ok "Setup complete. Re-run 'make setup' any time to change values or finish skipped steps."
