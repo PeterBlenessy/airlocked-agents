@@ -12,6 +12,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   both WireGuard key pairs automatically, and runs the make targets in the correct order
   (including harden-after-tunnel). Idempotent and re-runnable. `make doctor` reports system
   readiness without changing anything.
+- **`make setup-dryrun` — preview a setup without changing anything.** Runs the full wizard
+  (system check, config questions) and prints exactly what would be installed, started, and
+  written to `.env` (secrets masked), then exits having installed/written nothing. Safe to run
+  on a daily-driver machine to see the plan before committing.
 - **`make teardown` — clean uninstall via a transactional manifest.** `make setup` now records
   every change it makes to `.airlocked/manifest.tsv` (gitignored), recording a package as
   installed only if it was absent beforehand. `make teardown` replays that manifest in reverse,
