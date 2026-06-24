@@ -79,6 +79,16 @@ verify: check-env ## Run health + security boundary checks
 repo: ## Init git + create & push the GitHub repo (via gh). Usage: make repo [NAME=airlocked-agents] [VIS=private]
 	bash scripts/bootstrap-repo.sh $(or $(NAME),airlocked-agents) $(or $(VIS),private)
 
+.PHONY: audit
+audit: ## Repo-security audit (branch protection, secrets, token perms, signing, risky triggers). Usage: make audit REPOS="o/r ..." | make audit ORG=<org> [OUTPUT=audit-reports/r.md]
+	@if [ -n "$(ORG)" ]; then \
+	  bash scripts/security-audit.sh --org "$(ORG)" $(if $(OUTPUT),--output "$(OUTPUT)"); \
+	elif [ -n "$(REPOS)" ]; then \
+	  bash scripts/security-audit.sh $(if $(OUTPUT),--output "$(OUTPUT)") $(REPOS); \
+	else \
+	  echo "Usage: make audit REPOS=\"owner/repo ...\"  |  make audit ORG=<org> [OUTPUT=audit-reports/report.md]"; exit 2; \
+	fi
+
 .PHONY: lint
 lint: ## Sanity-check Ansible and Compose files
 	@command -v ansible-lint >/dev/null && ansible-lint ansible/*.yml || echo "ansible-lint not installed (optional)"

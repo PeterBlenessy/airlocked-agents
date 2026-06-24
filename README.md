@@ -86,6 +86,7 @@ airlocked-agents/
 │   ├── verify.sh            # health + boundary checks (binding, exact firewall, guard test)
 │   ├── injection-selftest.sh      # automated guard unit test (run by make verify)
 │   ├── bootstrap-repo.sh    # git init + gh repo create + push (with secret guard)
+│   ├── security-audit.sh    # audit org repos: branch protection, secrets, token perms, signing, risky triggers (`make audit`)
 │   └── injection-selftest.md      # the manual end-to-end injection test
 └── secrets/                 # gitignored; your keys live here, never committed
 
@@ -133,6 +134,27 @@ make verify                   # run health + boundary checks
 </details>
 
 Each target is safe to re-run; Ansible converges to the declared state. To tear down the container stacks: `make down`.
+
+### Auditing the org's repos
+
+The same "make the safe state hold automatically" rule applies to the repos
+themselves. `scripts/security-audit.sh` scans GitHub repositories for missing
+branch protection, long-lived/unrotated secrets, overly permissive
+`GITHUB_TOKEN` defaults, missing signed-commit enforcement, and risky
+`pull_request_target` / `workflow_run` triggers — then writes a **prioritized
+remediation report** linking each finding to the exact setting or workflow file.
+
+```bash
+make audit REPOS="PeterBlenessy/airlocked-agents"           # one repo
+make audit ORG=PeterBlenessy OUTPUT=audit-reports/org.md    # whole org → file
+scripts/security-audit.sh --static-only owner/repo          # CI-safe subset (no admin token)
+```
+
+It is read-only (reports, never edits) and exits non-zero on any Critical/High
+finding so it can gate CI. The checklist + per-finding remediation recipes live
+in [`docs/security-audit-checklist.md`](docs/security-audit-checklist.md); a
+sample run is in [`audit-reports/`](audit-reports/). The `security-audit`
+GitHub workflow dogfoods the admin-free static checks on every PR.
 
 ### Uninstall / rollback
 
