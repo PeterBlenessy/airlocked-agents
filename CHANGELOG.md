@@ -6,6 +6,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 ### Added
+- `COMPONENTS.md` — what each part of the stack (llama.cpp, Khoj, Open Interpreter, Cua, n8n,
+  Suna, Claude+MCP, Telegram, Supabase) actually is, its responsibility, and why it was chosen
+  over alternatives. Cross-linked from README and ARCHITECTURE.
 - **`make setup` — a guided, low-friction installer (`scripts/setup.sh`).** Inspects the system
   and offers to install missing prerequisites, collects `.env` config interactively with live
   validation (tests the Telegram token and auto-detects the chat id, tests VPS SSH), generates

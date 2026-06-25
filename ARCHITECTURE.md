@@ -89,6 +89,7 @@ These are the properties `make verify` and CI check for — break any of them an
 
 ## Where to go next
 
+- What each component is and why it was chosen: [`COMPONENTS.md`](COMPONENTS.md).
 - Build it: `README.md` → `make` targets.
 - The irreducible manual steps: `docs-MANUAL-STEPS.md`.
 - The threat model and how to report issues: `SECURITY.md`.
