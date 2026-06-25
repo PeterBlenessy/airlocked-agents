@@ -6,6 +6,7 @@ Idempotent setup for the architecture described in *The Recommended Setup — Ar
 
 The whole point of this repo is to keep one rule true automatically: **no single component reads untrusted content, holds your credentials, and can send — all at once.**
 
+> What each component is and why it was chosen: see [`COMPONENTS.md`](COMPONENTS.md).
 > Architecture, trust zones, and data flows: see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 > Threat model and how to report issues: see [`SECURITY.md`](SECURITY.md).
 > How to contribute: [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
