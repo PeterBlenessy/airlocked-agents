@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed (direction)
+- **Architecture is moving to a single dedicated Mac mini** running everything locally in Apple
+  `container` — no VPS, no WireGuard tunnel, Telegram by polling (zero public inbound). The
+  lethal-trifecta invariant is unchanged but enforced at the component level. Refactor in progress;
+  see the direction note at the top of `ARCHITECTURE.md`.
+
 ### Added
 - **Khoj now actually runs.** It requires a Postgres (pgvector) database and an admin/non-interactive
   startup that the repo never provided, so it had never booted. `compose/khoj.yml` now includes a
