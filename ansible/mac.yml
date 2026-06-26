@@ -72,6 +72,15 @@
       failed_when: false
       tags: [llama, tunnel]
 
+    - name: Check a container runtime is available for Khoj
+      # Works with whatever provides the docker daemon (Colima — the default — or Docker Desktop).
+      # `make setup` installs/starts the runtime; this gives a clear error for a standalone run.
+      ansible.builtin.command: docker info
+      changed_when: false
+      register: khoj_docker
+      failed_when: khoj_docker.rc != 0
+      tags: [khoj]
+
     - name: Bring up Khoj (localhost, pointed at the local model)
       ansible.builtin.command:
         cmd: docker compose -f {{ repo_root }}/compose/khoj.yml up -d

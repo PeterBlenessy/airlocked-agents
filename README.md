@@ -43,7 +43,7 @@ Everything manual is reduced to filling `.env` and a 5-item checklist in `docs-M
 
 ## Prerequisites
 
-- A Mac (Apple Silicon assumed) with Homebrew, and Docker Desktop.
+- A Mac (Apple Silicon assumed) with Homebrew. A container runtime for Khoj is installed for you — **Colima** by default (lightweight; no Docker Desktop needed). Set `CONTAINER_RUNTIME=docker` if you'd rather use Docker Desktop.
 - A small Linux VPS you can SSH into (Debian/Ubuntu assumed), 2 GB RAM is enough for n8n; Suna wants ~16 GB or a separate box.
 - `ansible` and `make` on the machine you run this from (`brew install ansible make`).
 - Your llama.cpp model file (or run `make model` to fetch one).

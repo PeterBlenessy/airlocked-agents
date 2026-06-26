@@ -121,10 +121,10 @@ doctor() {
     no "ansible collection community.general"; REQUIRED_MISSING+=("collection")
   fi
 
-  if have docker; then
-    if docker info >/dev/null 2>&1; then ok "docker (daemon running)"; else warn "docker installed but daemon not running — start Docker Desktop"; fi
-  else
-    no "docker"; REQUIRED_MISSING+=("docker")
+  # Container runtime for Khoj (Colima by default; Docker Desktop if you set CONTAINER_RUNTIME=docker).
+  if docker info >/dev/null 2>&1; then ok "container runtime (docker daemon reachable)"
+  elif have colima; then warn "colima installed but not started — 'make setup' will start it"
+  else say "  ${DIM}· container runtime — 'make setup' installs & starts Colima${R}"
   fi
 
   # Installed by 'make mac' via the Brewfile, but nice to report.
@@ -273,6 +273,37 @@ collect_full() {
 }
 
 # ---- execution --------------------------------------------------------------
+# Ensure the chosen container runtime is installed and running (Khoj needs it).
+# Records the Colima VM + the compose-plugin symlink to the manifest for clean teardown.
+ensure_container_runtime() {
+  local rt; rt="$(env_get CONTAINER_RUNTIME)"; rt="${rt:-colima}"
+  case "$rt" in
+    colima)
+      hdr "Container runtime: Colima"
+      have colima || brew install colima docker docker-compose
+      # Make `docker compose` find the v2 plugin that the brew formula installs.
+      mkdir -p "$HOME/.docker/cli-plugins"
+      if [ ! -e "$HOME/.docker/cli-plugins/docker-compose" ] && have brew; then
+        ln -sf "$(brew --prefix)/bin/docker-compose" "$HOME/.docker/cli-plugins/docker-compose" 2>/dev/null \
+          && rec file "$HOME/.docker/cli-plugins/docker-compose"
+      fi
+      if ! colima status >/dev/null 2>&1; then
+        local cpus mem; cpus="$(env_get COLIMA_CPUS)"; mem="$(env_get COLIMA_MEMORY)"
+        colima start --cpu "${cpus:-2}" --memory "${mem:-4}" && rec colima
+      fi
+      ok "Colima ready (lightweight, isolated, drop-in docker compose)." ;;
+    docker)
+      hdr "Container runtime: Docker Desktop"
+      if docker info >/dev/null 2>&1; then ok "Docker Desktop is running."
+      else warn "CONTAINER_RUNTIME=docker but Docker Desktop isn't running — start/install it, then re-run 'make mac'."; fi ;;
+    apple)
+      warn "CONTAINER_RUNTIME=apple is EXPERIMENTAL and not yet automated for Khoj — falling back to Colima."
+      env_set CONTAINER_RUNTIME colima; ensure_container_runtime ;;
+    *)
+      warn "Unknown CONTAINER_RUNTIME='$rt' — using colima."; env_set CONTAINER_RUNTIME colima; ensure_container_runtime ;;
+  esac
+}
+
 run_local() {
   hdr "Provision the local core"
 
@@ -290,6 +321,10 @@ run_local() {
     while IFS= read -r f; do [ -n "$f" ] && ! brew_has_cask "$f" && missing_c+=("$f"); done < <(brewfile_casks)
     pipx_has open-interpreter || miss_pipx=1
     npm_has @cua/cli || miss_npm=1
+
+    # Install/start the container runtime BEFORE make mac (Khoj needs it). Done after the
+    # snapshot above so any packages it installs (colima/docker) are captured in the delta.
+    ensure_container_runtime
 
     make mac
 
@@ -351,6 +386,9 @@ print_plan() {
   hdr "Plan — what a real run would do (nothing below has happened)"
 
   [ "${#REQUIRED_MISSING[@]}" -gt 0 ] && plan "Offer to install prerequisites: ${REQUIRED_MISSING[*]}"
+
+  local rt; rt="$(env_get CONTAINER_RUNTIME)"; rt="${rt:-colima}"
+  plan "Set up the container runtime for Khoj: ${rt}$([ "$rt" = colima ] && echo " (install + 'colima start')")"
 
   while IFS= read -r f; do [ -n "$f" ] && ! brew_has_formula "$f" && miss_f+=("$f"); done < <(brewfile_formulae)
   while IFS= read -r f; do [ -n "$f" ] && ! brew_has_cask "$f" && miss_c+=("$f"); done < <(brewfile_casks)

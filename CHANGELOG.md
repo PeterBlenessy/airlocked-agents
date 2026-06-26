@@ -6,6 +6,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 ### Added
+- Selectable Mac container runtime via `CONTAINER_RUNTIME` in `.env`: **Colima** (new default —
+  lightweight, open-source, drop-in `docker compose`, far lower memory than Docker Desktop, clean
+  removal, real isolation), **Docker Desktop** (opt-in), and **Apple `container`** (macOS 26+,
+  experimental, falls back to Colima). `make setup` installs/starts the runtime and records it for
+  `make teardown` (which stops + deletes the Colima VM and removes `~/.colima`/`~/.lima`).
 - `COMPONENTS.md` — what each part of the stack (llama.cpp, Khoj, Open Interpreter, Cua, n8n,
   Suna, Claude+MCP, Telegram, Supabase) actually is, its responsibility, and why it was chosen
   over alternatives. Cross-linked from README and ARCHITECTURE.
