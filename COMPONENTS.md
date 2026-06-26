@@ -37,6 +37,14 @@ as for what they do.
 - **Why containerized (vs a pip venv):** Khoj ingests content and pulls a large dependency tree,
   so a container's *capability* isolation (read-only doc mount, no host access) serves the security
   goal — a venv would run it with your full user privileges.
+- **Which runtime (memory / performance / security):** the container runs on **Colima** by
+  default — a lightweight, open-source runtime that is far easier on memory than Docker Desktop,
+  has no licensing, removes cleanly, and is a drop-in for `docker compose` while keeping real
+  container isolation. **Docker Desktop** is supported as an opt-in (`CONTAINER_RUNTIME=docker`).
+  **Apple's native `container`** (macOS 26+) is the strongest on all three axes — per-container
+  micro-VM isolation, memory reclaimed on stop, native performance — and is the intended target,
+  but it's marked **experimental** here (its host networking to the local model isn't yet
+  automated) and currently falls back to Colima. Set `CONTAINER_RUNTIME` in `.env`.
 
 ### Open Interpreter
 - **What it is:** an open-source tool that lets an LLM **write and run code/shell on your machine**
