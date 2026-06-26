@@ -6,11 +6,21 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 ### Added
-- Selectable Mac container runtime via `CONTAINER_RUNTIME` in `.env`: **Colima** (new default —
-  lightweight, open-source, drop-in `docker compose`, far lower memory than Docker Desktop, clean
-  removal, real isolation), **Docker Desktop** (opt-in), and **Apple `container`** (macOS 26+,
-  experimental, falls back to Colima). `make setup` installs/starts the runtime and records it for
-  `make teardown` (which stops + deletes the Colima VM and removes `~/.colima`/`~/.lima`).
+- **Khoj now actually runs.** It requires a Postgres (pgvector) database and an admin/non-interactive
+  startup that the repo never provided, so it had never booted. `compose/khoj.yml` now includes a
+  `database` (pgvector) service, admin env, and the `--host=0.0.0.0 --anonymous-mode
+  --non-interactive` command; verified serving its UI end-to-end.
+- Selectable Mac container runtime via `CONTAINER_RUNTIME` in `.env`, defaulting to **Apple
+  `container`** (macOS 26+ Apple Silicon): Khoj **+ Postgres** run as two per-container micro-VMs on a
+  dedicated **host-only network** (`--internal`, fixed subnet) — **no internet egress**, which closes
+  the "can send" trifecta leg by construction. The UI is exposed on `127.0.0.1` via the runtime's
+  native `--publish`; a single local `socat` bridge lets Khoj reach the host's llama. Falls back to
+  **Colima** (drop-in `docker compose`) when Apple `container` is unavailable; **Docker Desktop**
+  remains an opt-in. New `mac/khoj-runtime.sh` handles up/down for all three. `make setup` installs
+  the runtime and records every artifact (runtime, network, containers, volumes, bridge proxy, data)
+  so `make teardown` reverses it. **Verified end-to-end live on macOS 26** (Khoj UI serving, DB
+  migrations, egress blocked). The runtime is no longer pinned in the Brewfile (setup installs the
+  chosen one).
 - `COMPONENTS.md` — what each part of the stack (llama.cpp, Khoj, Open Interpreter, Cua, n8n,
   Suna, Claude+MCP, Telegram, Supabase) actually is, its responsibility, and why it was chosen
   over alternatives. Cross-linked from README and ARCHITECTURE.

@@ -4,13 +4,9 @@
 # Local model server (provides llama-server).
 brew "llama.cpp"
 
-# Container runtime for Khoj — Colima (lightweight, open-source) + the docker CLI & compose.
-# Far lighter than Docker Desktop on memory, no licensing, and removes cleanly, while keeping
-# real container isolation. To use Docker Desktop instead, set CONTAINER_RUNTIME=docker in .env
-# and install it yourself. (Apple's native `container` is an experimental option — see COMPONENTS.md.)
-brew "colima"
-brew "docker"
-brew "docker-compose"
+# Container runtime for Khoj is installed by `make setup` per CONTAINER_RUNTIME (not here, so the
+# static Brewfile doesn't pin a runtime): `apple` (default) installs Apple's `container`; `colima`
+# installs colima + the docker CLI + compose; `docker` expects Docker Desktop. See COMPONENTS.md.
 
 # Python tooling for agents installed via pipx (keeps them isolated).
 brew "pipx"
