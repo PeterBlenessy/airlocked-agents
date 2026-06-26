@@ -73,6 +73,8 @@ main() {
     case "$kind" in
       \#*) continue ;;
       brew_formula)
+        # Apple's container runtime must be stopped before its formula is removed.
+        [ "$a" = "container" ] && command -v container >/dev/null 2>&1 && container system stop >/dev/null 2>&1
         have brew && confirm "Uninstall Homebrew formula '$a' (setup installed it)?" y \
           && { brew uninstall "$a" 2>/dev/null && ok "uninstalled $a" || warn "could not uninstall $a (maybe a dependency)"; } ;;
       brew_cask)
@@ -95,6 +97,21 @@ main() {
           confirm "Stop & delete the Colima VM (and ~/.colima, ~/.lima)?" y \
             && { colima stop 2>/dev/null; colima delete -f 2>/dev/null; rm -rf "$HOME/.colima" "$HOME/.lima"; ok "Colima VM removed"; }
         fi ;;
+      apple_container)
+        if command -v container >/dev/null 2>&1; then
+          container stop "$a" 2>/dev/null; container delete "$a" 2>/dev/null && ok "removed Apple container '$a'" || true
+        fi ;;
+      apple_network)
+        if command -v container >/dev/null 2>&1; then
+          container network delete "$a" 2>/dev/null && ok "removed container network '$a'" || true
+        fi ;;
+      apple_volume)
+        if command -v container >/dev/null 2>&1; then
+          confirm "Delete container volume '$a' (Khoj data/DB)?" y \
+            && { container volume delete "$a" 2>/dev/null && ok "removed volume '$a'" || true; }
+        fi ;;
+      dir)
+        [ -d "$a" ] && confirm "Delete directory $a?" y && { rm -rf "$a" && ok "removed $a"; } ;;
       model)
         [ -f "$a" ] && confirm "Delete model file $a (you'd re-download to reinstall)?" y \
           && { rm -f "$a" && ok "removed model $a"; } ;;

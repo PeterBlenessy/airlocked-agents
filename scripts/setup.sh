@@ -122,9 +122,10 @@ doctor() {
   fi
 
   # Container runtime for Khoj (Colima by default; Docker Desktop if you set CONTAINER_RUNTIME=docker).
-  if docker info >/dev/null 2>&1; then ok "container runtime (docker daemon reachable)"
+  if command -v container >/dev/null 2>&1; then ok "Apple container installed"
+  elif docker info >/dev/null 2>&1; then ok "container runtime (docker daemon reachable)"
   elif have colima; then warn "colima installed but not started — 'make setup' will start it"
-  else say "  ${DIM}· container runtime — 'make setup' installs & starts Colima${R}"
+  else say "  ${DIM}· container runtime — 'make setup' installs the configured one (default: Apple container)${R}"
   fi
 
   # Installed by 'make mac' via the Brewfile, but nice to report.
@@ -276,12 +277,24 @@ collect_full() {
 # Ensure the chosen container runtime is installed and running (Khoj needs it).
 # Records the Colima VM + the compose-plugin symlink to the manifest for clean teardown.
 ensure_container_runtime() {
-  local rt; rt="$(env_get CONTAINER_RUNTIME)"; rt="${rt:-colima}"
+  local rt; rt="$(env_get CONTAINER_RUNTIME)"; rt="${rt:-apple}"
   case "$rt" in
+    apple)
+      hdr "Container runtime: Apple container"
+      if ! have container; then
+        # Needs macOS 26+ on Apple Silicon; fall back to Colima if unavailable.
+        if [ "$(uname -m)" != "arm64" ] || ! brew install container 2>/dev/null; then
+          warn "Apple 'container' unavailable here — falling back to Colima."
+          env_set CONTAINER_RUNTIME colima; ensure_container_runtime; return
+        fi
+        rec brew_formula container
+      fi
+      printf 'Y\n' | container system start >/dev/null 2>&1 || true
+      rec dir "$HOME/Library/Application Support/com.apple.container"
+      ok "Apple container ready (Khoj will run on a host-only network with no internet egress)." ;;
     colima)
       hdr "Container runtime: Colima"
-      have colima || brew install colima docker docker-compose
-      # Make `docker compose` find the v2 plugin that the brew formula installs.
+      if ! have colima; then brew install colima docker docker-compose && { rec brew_formula colima; rec brew_formula docker; rec brew_formula docker-compose; }; fi
       mkdir -p "$HOME/.docker/cli-plugins"
       if [ ! -e "$HOME/.docker/cli-plugins/docker-compose" ] && have brew; then
         ln -sf "$(brew --prefix)/bin/docker-compose" "$HOME/.docker/cli-plugins/docker-compose" 2>/dev/null \
@@ -291,16 +304,13 @@ ensure_container_runtime() {
         local cpus mem; cpus="$(env_get COLIMA_CPUS)"; mem="$(env_get COLIMA_MEMORY)"
         colima start --cpu "${cpus:-2}" --memory "${mem:-4}" && rec colima
       fi
-      ok "Colima ready (lightweight, isolated, drop-in docker compose)." ;;
+      ok "Colima ready." ;;
     docker)
       hdr "Container runtime: Docker Desktop"
       if docker info >/dev/null 2>&1; then ok "Docker Desktop is running."
       else warn "CONTAINER_RUNTIME=docker but Docker Desktop isn't running — start/install it, then re-run 'make mac'."; fi ;;
-    apple)
-      warn "CONTAINER_RUNTIME=apple is EXPERIMENTAL and not yet automated for Khoj — falling back to Colima."
-      env_set CONTAINER_RUNTIME colima; ensure_container_runtime ;;
     *)
-      warn "Unknown CONTAINER_RUNTIME='$rt' — using colima."; env_set CONTAINER_RUNTIME colima; ensure_container_runtime ;;
+      warn "Unknown CONTAINER_RUNTIME='$rt' — using apple."; env_set CONTAINER_RUNTIME apple; ensure_container_runtime ;;
   esac
 }
 
@@ -342,7 +352,19 @@ run_local() {
     rec file "$HOME/Library/Logs/llama-server.err.log"
     rec file "$HOME/Library/Logs/llama-tunnel.log"
     rec file "$HOME/Library/Logs/llama-tunnel.err.log"
-    rec compose "$ROOT/compose/khoj.yml"
+    # Khoj artifacts depend on the container runtime.
+    local rt; rt="$(env_get CONTAINER_RUNTIME)"; rt="${rt:-apple}"
+    if [ "$rt" = "apple" ]; then
+      rec apple_container khoj
+      rec apple_container khoj-db
+      rec apple_network "$(env_get KHOJ_NETWORK || echo khojnet)"
+      rec apple_volume "$(env_get KHOJ_DB_VOLUME || echo khoj_db)"
+      rec apple_volume "$(env_get KHOJ_DATA_VOLUME || echo khoj_data)"
+      rec launchd com.local.llama-khojbridge
+      rec file "$HOME/Library/LaunchAgents/com.local.llama-khojbridge.plist"
+    else
+      rec compose "$ROOT/compose/khoj.yml"
+    fi
   fi
 
   confirm "Run 'make verify'?" y && make verify
@@ -387,8 +409,12 @@ print_plan() {
 
   [ "${#REQUIRED_MISSING[@]}" -gt 0 ] && plan "Offer to install prerequisites: ${REQUIRED_MISSING[*]}"
 
-  local rt; rt="$(env_get CONTAINER_RUNTIME)"; rt="${rt:-colima}"
-  plan "Set up the container runtime for Khoj: ${rt}$([ "$rt" = colima ] && echo " (install + 'colima start')")"
+  local rt; rt="$(env_get CONTAINER_RUNTIME)"; rt="${rt:-apple}"
+  case "$rt" in
+    apple)  plan "Container runtime: install Apple 'container'; run Khoj + Postgres on a host-only network ($(env_get KHOJ_SUBNET || echo 192.168.66.0/24), no internet egress); UI via --publish, llama via a bridge proxy" ;;
+    colima) plan "Container runtime: install + start Colima; run Khoj via docker compose" ;;
+    docker) plan "Container runtime: use Docker Desktop; run Khoj via docker compose" ;;
+  esac
 
   while IFS= read -r f; do [ -n "$f" ] && ! brew_has_formula "$f" && miss_f+=("$f"); done < <(brewfile_formulae)
   while IFS= read -r f; do [ -n "$f" ] && ! brew_has_cask "$f" && miss_c+=("$f"); done < <(brewfile_casks)
