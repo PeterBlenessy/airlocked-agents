@@ -2,6 +2,18 @@
 
 A self-contained description of the system this repo provisions. The companion *Architecture & Build Guide* has the long-form rationale and rendered diagrams; this file is the version that lives with the code, so the repo is understandable on its own.
 
+> **Direction (in progress — decided 2026-06-26):** the target is a **single dedicated, always-on
+> Mac mini running everything locally** — *not* the Mac + VPS + Cloud model the rest of this doc
+> still describes. On the mini: llama.cpp, Khoj (+Postgres), Open Interpreter, Cua, n8n, and (later)
+> Suna — all in **Apple `container`**. **The VPS and WireGuard tunnel are removed.** Telegram runs by
+> **polling** (Schedule + getUpdates), so there is **zero public inbound** — stronger than the old
+> 443 ingress. Cloud (Claude + MCP) stays, outbound-only, for public work. The lethal-trifecta
+> invariant is unchanged but enforced at the **component** level (container isolation, a no-egress
+> `--internal` network for content-readers like Khoj, the model holding no credentials, human-gated
+> + allowlisted sending). The trade-off vs the multi-host model is host isolation → container
+> isolation, so the mini should be a **dedicated appliance**, not a daily-driver. Sections below are
+> being migrated to this model.
+
 ## The governing rule
 
 > **No single component may simultaneously (a) read untrusted content, (b) hold credentials, and (c) send data outward.**
