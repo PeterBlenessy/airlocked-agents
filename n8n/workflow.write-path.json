@@ -1,21 +1,39 @@
 {
   "name": "Draft, approve, send (write path)",
-  "_comment": "SKELETON — importable starting point. The model DRAFTS only; the allowlist Code node and a human approval gate sit between draft and the Gmail send node, which alone holds the credential. Verify node versions and reconnect credentials in the editor.",
+  "_comment": "SKELETON — importable starting point for the SINGLE-BOX / no-inbound model. Telegram is reached by POLLING: a Schedule trigger calls getUpdates (track the update offset in workflow static data — finish that in the editor), an Extract step shapes each update as { message: { chat: { id }, text } } for the guard, then the model DRAFTS only; the allowlist Code node + a human approval gate sit between draft and the Gmail send node, which alone holds the credential. Verify node versions and reconnect credentials in the editor.",
   "nodes": [
     {
-      "parameters": { "updates": [ "message" ] },
-      "name": "Telegram Trigger (you ask)",
-      "type": "n8n-nodes-base.telegramTrigger",
-      "typeVersion": 1,
-      "position": [ 240, 300 ],
-      "credentials": { "telegramApi": { "id": "REPLACE", "name": "Telegram bot" } }
+      "parameters": { "rule": { "interval": [ { "field": "minutes", "minutesInterval": 1 } ] } },
+      "name": "Poll schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [ 200, 300 ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/getUpdates",
+        "options": {}
+      },
+      "name": "Telegram getUpdates (poll)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [ 400, 300 ],
+      "_comment": "Pass ?offset=<last_update_id+1> from workflow static data to avoid reprocessing — wire in the editor."
+    },
+    {
+      "parameters": { "jsCode": "// Shape each Telegram update as { message: {...} } so the guard sees a per-message item.\nconst res = $input.first().json.result || [];\nreturn res.map((u) => ({ json: { message: u.message } })).filter((i) => i.json.message);" },
+      "name": "Extract messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 600, 300 ]
     },
     {
       "parameters": { "jsCode": "// Inlined from n8n/allowlist.code.js — keep the two in sync (verify.sh checks this node).\nconst ALLOWED_CHAT_ID = Number($env.TELEGRAM_ALLOWED_CHAT_ID);\nconst ALLOWED_RECIPIENTS = ($env.MAIL_ALLOWLIST || \"\")\n  .split(\",\")\n  .map((s) => s.trim().toLowerCase())\n  .filter(Boolean);\nconst item = $input.first().json;\nconst incomingChatId = item.message?.chat?.id ?? item.chatId;\nif (incomingChatId !== undefined && incomingChatId !== ALLOWED_CHAT_ID) {\n  throw new Error(`Unauthorized chat ${incomingChatId} — ignoring.`);\n}\nif (item.action === \"send\") {\n  const recipient = String(item.to || \"\").toLowerCase();\n  if (!ALLOWED_RECIPIENTS.includes(recipient)) {\n    throw new Error(`Recipient \"${recipient}\" not on allowlist — send blocked.`);\n  }\n}\nreturn $input.all();" },
       "name": "Allowlist guard",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [ 460, 300 ]
+      "position": [ 800, 300 ]
     },
     {
       "parameters": {
@@ -25,7 +43,7 @@
       "name": "AI Draft (no creds)",
       "type": "n8n-nodes-base.openAi",
       "typeVersion": 1,
-      "position": [ 680, 300 ]
+      "position": [ 1000, 300 ]
     },
     {
       "parameters": {
@@ -36,7 +54,7 @@
       "name": "Telegram approve gate",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1,
-      "position": [ 900, 300 ],
+      "position": [ 1200, 300 ],
       "_comment": "Use a wait-for-reply / human-in-the-loop pattern; only 'ok' continues to send."
     },
     {
@@ -44,12 +62,14 @@
       "name": "Gmail Send (holds credential)",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2,
-      "position": [ 1120, 300 ],
+      "position": [ 1400, 300 ],
       "credentials": { "gmailOAuth2": { "id": "REPLACE", "name": "Gmail account" } }
     }
   ],
   "connections": {
-    "Telegram Trigger (you ask)": { "main": [ [ { "node": "Allowlist guard", "type": "main", "index": 0 } ] ] },
+    "Poll schedule": { "main": [ [ { "node": "Telegram getUpdates (poll)", "type": "main", "index": 0 } ] ] },
+    "Telegram getUpdates (poll)": { "main": [ [ { "node": "Extract messages", "type": "main", "index": 0 } ] ] },
+    "Extract messages": { "main": [ [ { "node": "Allowlist guard", "type": "main", "index": 0 } ] ] },
     "Allowlist guard": { "main": [ [ { "node": "AI Draft (no creds)", "type": "main", "index": 0 } ] ] },
     "AI Draft (no creds)": { "main": [ [ { "node": "Telegram approve gate", "type": "main", "index": 0 } ] ] },
     "Telegram approve gate": { "main": [ [ { "node": "Gmail Send (holds credential)", "type": "main", "index": 0 } ] ] }
