@@ -1,26 +1,25 @@
-# compose/n8n.yml — n8n Community Edition, locked to localhost (expose via reverse proxy + TLS).
-# Rendered/used by ansible/vps.yml. Variables come from the host environment / .env.
+# compose/n8n.yml — n8n on the Mac mini, localhost only, no public inbound.
+# Used for CONTAINER_RUNTIME=colima|docker. (Apple `container` uses mac/n8n-runtime.sh instead.)
+# n8n holds credentials and sends, so it has internet egress; Telegram is reached by POLLING
+# (Schedule + getUpdates), so no webhook/ingress is configured. The owner account is created
+# once in the UI on first visit. The repo n8n/ dir is mounted so the CLI can import workflows.
 services:
   n8n:
     image: ${N8N_IMAGE:-docker.n8n.io/n8nio/n8n:latest}
     container_name: n8n
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5678:5678"          # never expose the raw port publicly
+      - "127.0.0.1:${N8N_PORT:-5678}:5678"     # localhost only — never public
     environment:
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER}
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD}
-      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}     # encrypts stored credentials; back it up
-      - N8N_HOST=${N8N_HOST}
-      - WEBHOOK_URL=https://${N8N_HOST}/
-      - N8N_PROTOCOL=https
-      - N8N_SECURE_COOKIE=true
+      - N8N_PROTOCOL=http
+      - N8N_SECURE_COOKIE=false                 # required for http on localhost
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}   # encrypts stored credentials; back it up
       - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-UTC}
       - N8N_DIAGNOSTICS_ENABLED=false
       - N8N_PERSONALIZATION_ENABLED=false
     volumes:
       - n8n_data:/home/node/.n8n
+      - ../n8n:/workflows:ro                     # workflow skeletons, for `import:workflow`
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz || exit 1"]
       interval: 30s

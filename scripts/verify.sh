@@ -22,56 +22,32 @@ fi
 curl -fsS "http://127.0.0.1:${KHOJ_PORT:-42110}/" >/dev/null \
   && pass "Khoj responds on localhost:${KHOJ_PORT:-42110}" \
   || fail "Khoj not responding"
+# n8n up?
+curl -fsS "http://127.0.0.1:${N8N_PORT:-5678}/healthz" >/dev/null \
+  && pass "n8n responds on localhost:${N8N_PORT:-5678}" \
+  || fail "n8n not responding"
 
 echo "== Security boundaries =="
-# Local services must listen ONLY on the loopback or the WireGuard tunnel interface.
-# The model binds to 127.0.0.1; a socat proxy re-exposes it on MAC_TUNNEL_IP for the VPS.
+# Service ports must listen ONLY on loopback or the host-only container-network gateway
+# (the llama bridge binds KHOJ_GATEWAY, a private host-only interface) — never a public one.
 if command -v lsof >/dev/null; then
-  TUNNEL_IP="${MAC_TUNNEL_IP:-10.10.0.2}"
-  ALLOWED_IFACE="$(printf '127\.0\.0\.1|%s' "$(echo "$TUNNEL_IP" | sed 's/\./\\./g')")"
-  if lsof -nP -iTCP -sTCP:LISTEN | grep -E ":(${LLAMA_PORT:-8080}|${KHOJ_PORT:-42110})\b" \
-       | grep -vqE "($ALLOWED_IFACE)"; then
-    fail "A local service is listening on a non-local interface — must be 127.0.0.1 or ${TUNNEL_IP} (tunnel) only"
+  GW="${KHOJ_GATEWAY:-192.168.66.1}"
+  ALLOWED="$(printf '127\.0\.0\.1|%s' "$(echo "$GW" | sed 's/\./\\./g')")"
+  if lsof -nP -iTCP -sTCP:LISTEN \
+       | grep -E ":(${LLAMA_PORT:-8080}|${KHOJ_PORT:-42110}|${N8N_PORT:-5678})\b" \
+       | grep -vqE "($ALLOWED)"; then
+    fail "A service is listening on a public interface — must be 127.0.0.1 or ${GW} (host-only) only"
   else
-    pass "Local services bound to 127.0.0.1 / ${TUNNEL_IP} (tunnel) only"
+    pass "Services bound to 127.0.0.1 / ${GW} (host-only) only — no public inbound"
   fi
 fi
 
-# VPS firewall: inbound must be EXACTLY {22, 443, WG} — nothing else (checked over SSH).
-if [ -n "${VPS_HOST:-}" ]; then
-  WG_PORT="${WG_LISTEN_PORT:-51820}"
-  # Once SSH is locked to the tunnel, manage over the tunnel IP, not the public host.
-  if [ "${SSH_HARDENED:-false}" = "true" ]; then
-    SSH_TARGET="${VPS_TUNNEL_IP:-10.10.0.1}"
+# Khoj must have NO internet egress (host-only network) — the trifecta "can send" leg.
+if command -v container >/dev/null 2>&1 && container inspect khoj >/dev/null 2>&1; then
+  if container exec khoj sh -c 'curl -s --max-time 6 -o /dev/null https://1.1.1.1/' >/dev/null 2>&1; then
+    fail "Khoj has internet egress — it must run on the host-only (--internal) network"
   else
-    SSH_TARGET="${VPS_HOST}"
-  fi
-  RULES="$(ssh "${VPS_USER}@${SSH_TARGET}" 'sudo ufw status' 2>/dev/null || true)"
-  if echo "$RULES" | grep -q "Status: active"; then
-    pass "VPS ufw active (via ${SSH_TARGET})"
-    echo "$RULES" | grep -qE "5678.*ALLOW" \
-      && fail "n8n port 5678 is exposed on the VPS — it must be localhost + reverse proxy only" \
-      || pass "n8n raw port not publicly exposed"
-    EXPECTED="$(printf '22\n443\n%s\n' "$WG_PORT" | sort -u)"
-    ACTUAL="$(echo "$RULES" | awk '/ALLOW/ {print $1}' | sed 's#/.*##' | grep -E '^[0-9]+$' | sort -u)"
-    EXTRA="$(comm -13 <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$ACTUAL"))"
-    if [ -n "$EXTRA" ]; then
-      fail "VPS firewall has unexpected inbound port(s): $(echo "$EXTRA" | tr '\n' ' ')— allow only 22, 443, ${WG_PORT}"
-    else
-      pass "VPS firewall inbound is exactly 22 (SSH), 443 (HTTPS), ${WG_PORT} (WireGuard)"
-    fi
-    # SSH exposure: must be tunnel-locked once hardened.
-    if [ "${SSH_HARDENED:-false}" = "true" ]; then
-      if echo "$RULES" | grep -E '^22/tcp' | grep -qi 'Anywhere'; then
-        fail "SSH (22) is still open to Anywhere despite SSH_HARDENED=true — re-run 'make harden'"
-      else
-        pass "SSH (22) restricted to the tunnel (not Anywhere)"
-      fi
-    elif echo "$RULES" | grep -E '^22/tcp' | grep -qi 'Anywhere'; then
-      printf "  \033[33m!\033[0m %s\n" "SSH (22) is open to Anywhere — after the tunnel is up, run 'make harden' to lock it"
-    fi
-  else
-    fail "VPS ufw not active or unreachable (tried ${SSH_TARGET})"
+    pass "Khoj has no internet egress (host-only network)"
   fi
 fi
 

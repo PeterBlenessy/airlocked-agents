@@ -27,34 +27,13 @@ confirm() {
   ans="${ans:-$def}"; [[ "$ans" =~ ^[Yy]$ ]]
 }
 
-# Load a couple of .env values we need before .env might be removed.
-SSH_HARDENED="false"; VPS_TUNNEL_IP="10.10.0.1"
+# Load .env (for any values referenced) before .env might be removed.
 if [ -f "$ENV_FILE" ]; then
   # shellcheck disable=SC1090
   set -a; . "$ENV_FILE" 2>/dev/null || true; set +a
 fi
 
 reverse() { if have tac; then tac; else tail -r; fi; }
-
-vps_teardown() {
-  local host="$1" user="$2" target="$host"
-  [ "${SSH_HARDENED:-false}" = "true" ] && target="${VPS_TUNNEL_IP:-10.10.0.1}"
-  warn "VPS teardown will SSH to ${user}@${target} and remove the stack there."
-  confirm "Proceed with VPS teardown?" n || { warn "Skipped VPS teardown."; return; }
-  local ssh="ssh ${user}@${target}"
-  if confirm "  Stop & remove n8n (incl. its data volume)?" y; then
-    $ssh 'sudo docker compose -f /opt/airlocked-agents/n8n.yml down -v' 2>/dev/null && ok "n8n removed" || warn "n8n removal failed/!reachable"
-  fi
-  if confirm "  Remove WireGuard config + disable wg-quick@wg0 on the VPS?" y; then
-    $ssh 'sudo systemctl disable --now wg-quick@wg0 2>/dev/null; sudo rm -f /etc/wireguard/wg0.conf' && ok "WireGuard removed (VPS)" || warn "WG removal failed"
-  fi
-  if confirm "  Reset the VPS firewall (ufw) to defaults?" n; then
-    $ssh 'sudo ufw --force reset' >/dev/null 2>&1 && ok "ufw reset" || warn "ufw reset failed"
-  fi
-  if confirm "  Remove /opt/airlocked-agents (Suna clone, compose, rendered .env)?" y; then
-    $ssh 'sudo rm -rf /opt/airlocked-agents' && ok "app dir removed (VPS)" || warn "app dir removal failed"
-  fi
-}
 
 main() {
   say "${B}airlocked-agents — teardown (reverse of setup)${R}"
@@ -120,8 +99,6 @@ main() {
           && { rm -f "$a" && ok "removed $a"; } ;;
       file)
         [ -e "$a" ] && { rm -f "$a" && ok "removed $a"; } || true ;;
-      vps)
-        vps_teardown "$a" "$b" ;;
       note)
         warn "Manual: $a" ;;
       *) warn "Unknown manifest entry: $kind $a" ;;

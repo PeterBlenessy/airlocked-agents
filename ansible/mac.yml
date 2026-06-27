@@ -12,7 +12,6 @@
     llama_port: "{{ lookup('env','LLAMA_PORT') | default('8080', true) }}"
     llama_ctx: "{{ lookup('env','LLAMA_CTX') | default('32768', true) }}"
     llama_api_key: "{{ lookup('env','LLAMA_API_KEY') | default('local-only', true) }}"
-    mac_tunnel_ip: "{{ lookup('env','MAC_TUNNEL_IP') | default('10.10.0.2', true) }}"
 
   tasks:
     - name: Install Homebrew packages from the Brewfile (idempotent)
@@ -56,30 +55,22 @@
       failed_when: false
       tags: [llama]
 
-    - name: Render the llama tunnel-proxy launchd plist (exposes the model on the WG interface only)
-      ansible.builtin.template:
-        src: "{{ repo_root }}/mac/com.local.llama-tunnel.plist.tmpl"
-        dest: "{{ ansible_env.HOME }}/Library/LaunchAgents/com.local.llama-tunnel.plist"
-        mode: "0644"
-      tags: [llama, tunnel]
-
-    - name: Load and start the llama tunnel proxy (idempotent)
-      ansible.builtin.command: >
-        launchctl bootstrap gui/{{ ansible_user_uid | default(501) }}
-        {{ ansible_env.HOME }}/Library/LaunchAgents/com.local.llama-tunnel.plist
-      register: tunnel_bootstrap
-      changed_when: "'service already bootstrapped' not in (tunnel_bootstrap.stderr | default(''))"
-      failed_when: false
-      tags: [llama, tunnel]
-
     - name: Bring up Khoj on the configured container runtime (apple/colima/docker)
-      # khoj-runtime.sh handles each runtime; for Apple it creates the host-only network,
-      # runs the container, and starts the two localhost proxies. `make setup` installs/starts
+      # khoj-runtime.sh handles each runtime; for Apple it creates the host-only (no-egress)
+      # network, runs Khoj + Postgres, and starts the llama bridge proxy. `make setup` installs
       # the runtime first and records artifacts for clean teardown.
       ansible.builtin.command:
         cmd: bash {{ repo_root }}/mac/khoj-runtime.sh up
       changed_when: false
       tags: [khoj]
+
+    - name: Bring up n8n on the configured container runtime (automation orchestrator)
+      # n8n holds credentials and sends, so it runs with internet egress; UI on 127.0.0.1, no
+      # public inbound (Telegram is polled). Imports the workflow skeletons once healthy.
+      ansible.builtin.command:
+        cmd: bash {{ repo_root }}/mac/n8n-runtime.sh up
+      changed_when: false
+      tags: [n8n]
 
     - name: Verify the local model endpoint responds
       ansible.builtin.uri:
@@ -101,14 +92,16 @@
       failed_when: false
       tags: [never, down]
 
+    - name: Stop n8n (on whichever container runtime is configured)
+      ansible.builtin.command:
+        cmd: bash {{ repo_root }}/mac/n8n-runtime.sh down
+      changed_when: false
+      failed_when: false
+      tags: [never, down]
+
     - name: Unload llama-server agent
       ansible.builtin.command: >
         launchctl bootout gui/{{ ansible_user_uid | default(501) }}/com.local.llama-server
       failed_when: false
       tags: [never, down]
-
-    - name: Unload llama tunnel proxy
-      ansible.builtin.command: >
-        launchctl bootout gui/{{ ansible_user_uid | default(501) }}/com.local.llama-tunnel
-      failed_when: false
       tags: [never, down]

@@ -38,41 +38,19 @@ check-env: ## Fail early if .env is missing
 	@test -f .env || { echo "Missing .env — run 'make setup' (guided) or: cp .env.example .env && edit it"; exit 1; }
 
 .PHONY: mac
-mac: check-env ## Provision the Mac: llama.cpp + tunnel proxy, Khoj, Open Interpreter, Cua (idempotent)
+mac: check-env ## Provision the Mac mini: llama.cpp, Khoj+Postgres, n8n, Open Interpreter, Cua (idempotent)
 	$(ANSIBLE) ansible/mac.yml --limit mac
-
-.PHONY: vps
-vps: check-env ## Provision the VPS: docker, n8n, firewall, wireguard, suna clone (idempotent)
-	$(ANSIBLE) ansible/vps.yml --limit vps
 
 .PHONY: model
 model: check-env ## Download the local GGUF model (multi-GB, opt-in)
 	bash mac/download-model.sh
 
-.PHONY: tunnel
-tunnel: check-env ## Bring up the WireGuard Mac<->VPS tunnel
-	$(ANSIBLE) ansible/vps.yml --limit vps --tags wireguard
-	@echo "On the Mac, import wireguard/wg0.mac.conf (rendered) into the WireGuard app and activate it."
-
-.PHONY: harden
-harden: check-env ## Lock VPS SSH to the WireGuard tunnel (run AFTER `make tunnel` is up)
-	@echo "Locking SSH (22) to the tunnel. Requires an active WireGuard handshake; aborts if not."
-	$(ANSIBLE) ansible/vps.yml --limit vps --tags firewall -e ssh_hardened=true
-	@echo "SSH is now tunnel-only. Set SSH_HARDENED=true in .env so future runs stay hardened"
-	@echo "and management routes over VPS_TUNNEL_IP."
-
 .PHONY: workflows
-workflows: check-env ## Import the n8n workflow skeletons via the n8n CLI
-	@echo "Importing n8n workflows (verify/finish them in the editor afterwards)..."
-	$(ANSIBLE) ansible/vps.yml --limit vps --tags workflows
-
-.PHONY: up
-up: ## Bring the container stacks up (run inside the relevant host targets)
-	@echo "Use 'make mac' and 'make vps' — Compose is managed by Ansible."
+workflows: check-env ## (Re)import the n8n workflow skeletons
+	bash mac/n8n-runtime.sh up
 
 .PHONY: down
-down: ## Stop the container stacks (n8n, Khoj) on their hosts
-	$(ANSIBLE) ansible/vps.yml --limit vps --tags down || true
+down: ## Stop the container stacks (Khoj, n8n)
 	$(ANSIBLE) ansible/mac.yml --limit mac --tags down || true
 
 .PHONY: verify

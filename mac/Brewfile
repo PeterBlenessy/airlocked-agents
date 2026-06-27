@@ -11,10 +11,7 @@ brew "llama.cpp"
 # Python tooling for agents installed via pipx (keeps them isolated).
 brew "pipx"
 
-# Tunnel to the VPS. (CLI tools; the GUI app is "WireGuard" from the App Store.)
-brew "wireguard-tools"
-
-# Exposes the localhost model on the WireGuard interface only (tunnel-only proxy).
+# Bridges the localhost model to containers on their host-only network (llama bridge proxy).
 brew "socat"
 
 # Node/npm — required for the Cua npm install below and for the allowlist guard self-test.
