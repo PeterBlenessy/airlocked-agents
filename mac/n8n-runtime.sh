@@ -16,7 +16,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ACTION="${1:-up}"
 RUNTIME="${CONTAINER_RUNTIME:-apple}"
 
-N8N_IMAGE="${N8N_IMAGE:-docker.n8n.io/n8nio/n8n:latest}"
+N8N_IMAGE="${N8N_IMAGE:-docker.io/n8nio/n8n:latest}"
 N8N_PORT="${N8N_PORT:-5678}"
 N8N_DATA_VOLUME="${N8N_DATA_VOLUME:-n8n_data}"
 GENERIC_TIMEZONE="${GENERIC_TIMEZONE:-Europe/Stockholm}"
@@ -42,6 +42,11 @@ up_apple() {
   else
     # Default network → has internet egress (n8n must reach Telegram/Gmail). UI published to
     # localhost; repo n8n/ mounted read-only so the CLI can import the workflows.
+    # Apple-container named volumes are root-owned, but n8n runs as `node` — chown it first
+    # (one-off, via the n8n image so no extra pull) or n8n can't write /home/node/.n8n.
+    container run --rm --user 0 --entrypoint sh \
+      -v "$N8N_DATA_VOLUME:/home/node/.n8n" "$N8N_IMAGE" \
+      -c 'chown -R node:node /home/node/.n8n' >/dev/null 2>&1 || true
     container run -d --name n8n \
       -e N8N_PROTOCOL=http -e N8N_SECURE_COOKIE=false \
       -e "N8N_PORT=$N8N_PORT" -e N8N_LISTEN_ADDRESS=0.0.0.0 \

@@ -5,7 +5,7 @@
 # once in the UI on first visit. The repo n8n/ dir is mounted so the CLI can import workflows.
 services:
   n8n:
-    image: ${N8N_IMAGE:-docker.n8n.io/n8nio/n8n:latest}
+    image: ${N8N_IMAGE:-docker.io/n8nio/n8n:latest}
     container_name: n8n
     restart: unless-stopped
     ports:

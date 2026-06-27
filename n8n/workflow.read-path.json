@@ -1,4 +1,5 @@
 {
+  "id": "airlocked-read-path",
   "name": "Inbox to Telegram (read path)",
   "_comment": "SKELETON — importable starting point. Reconnect credentials and verify node versions in the n8n editor after import. The read path only reads and notifies; it holds no send-path to others.",
   "nodes": [
