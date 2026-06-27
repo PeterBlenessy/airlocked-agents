@@ -1,4 +1,5 @@
 {
+  "id": "airlocked-write-path",
   "name": "Draft, approve, send (write path)",
   "_comment": "SKELETON — importable starting point for the SINGLE-BOX / no-inbound model. Telegram is reached by POLLING: a Schedule trigger calls getUpdates (track the update offset in workflow static data — finish that in the editor), an Extract step shapes each update as { message: { chat: { id }, text } } for the guard, then the model DRAFTS only; the allowlist Code node + a human approval gate sit between draft and the Gmail send node, which alone holds the credential. Verify node versions and reconnect credentials in the editor.",
   "nodes": [
