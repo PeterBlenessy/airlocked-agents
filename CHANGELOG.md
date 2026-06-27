@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format follows
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed (refocus: automation + capture layer for Notesage)
+- Rescoped the project: it is now the **local, no-inbound automation + capture layer for Notesage**,
+  not a bundled stack. **Khoj / the second brain are dropped** (Notesage fills that role, installed
+  separately). What remains: **n8n** (scheduled/event jobs + **Telegram mobile capture**), a local
+  **Gemma** summariser (llama.cpp), a **folder airlock** Notesage indexes, and a future **Keychain
+  broker** for the few credentialed actions. Telegram's role is now defined: the zero-inbound
+  transport for sharing a URL/tweet from your phone into your knowledge folder. ARCHITECTURE.md
+  rewritten with the new design + open questions; README/.env updated. Code cleanup to follow once
+  the open questions are settled.
+
 ### Changed (single-box refactor)
 - **Everything now runs on one dedicated Mac mini — the VPS and WireGuard tunnel are removed.**
   Deleted `ansible/vps.yml`, the `wireguard/` templates, the llama tunnel proxy, and the

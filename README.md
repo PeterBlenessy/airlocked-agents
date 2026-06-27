@@ -2,6 +2,8 @@
 
 **Deterministic IaC for a private, self-hosted AI automation stack — untrusted content stays in the airlock.**
 
+> **Refocus in progress (2026-06):** this is becoming the **local, no-inbound automation + capture layer for [Notesage](https://github.com/PeterBlenessy/note-sage)** — n8n for scheduled/event jobs + Telegram mobile capture, a local **Gemma** model for summarising, writing into a folder Notesage indexes. **Khoj and the bundled "second brain" are dropped** (Notesage is that, installed separately). See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the new design and open questions; the sections below still describe the older bundled stack and are being rewritten.
+
 Idempotent setup of a private, self-hosted AI stack on **one dedicated, always-on Mac mini**: a
 local model + second brain (Khoj), an n8n automation orchestrator, and per-action computer control —
 everything in Apple `container` or native launchd, with **no public inbound** (Telegram is polled).

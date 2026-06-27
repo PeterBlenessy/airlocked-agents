@@ -1,116 +1,77 @@
 # Architecture
 
-A self-contained description of the system this repo provisions: **one dedicated, always-on Mac
-mini running everything locally**, plus the public cloud for non-sensitive work. This file lives
-with the code so the repo is understandable on its own.
+airlocked-agents is the **local, no-inbound automation + capture layer for [Notesage](https://github.com/PeterBlenessy/note-sage)**. It does the two things Notesage doesn't (yet): run **scheduled / event-triggered jobs**, and let you **capture a URL or tweet from your phone** into your knowledge base — summarising both with a **local model** and dropping the result into a folder Notesage indexes.
 
-## The governing rule
+It is **not** a second brain and does **not** bundle one — Notesage is that, and you install it yourself. This repo is the glue around it.
+
+## The governing rule (unchanged)
 
 > **No single component may simultaneously (a) read untrusted content, (b) hold credentials, and (c) send data outward.**
 
-This is the "lethal trifecta" (Simon Willison, 2025): an agent with all three powers can be
-hijacked by a single poisoned input — an email, a web page, a message — to read your private data
-and ship it to an attacker, with no traditional bug involved. The architecture exists to keep those
-three powers in separate hands. The "zones" of earlier designs were just a convenient way to enforce
-this; here it is enforced at the **component** level, on one machine.
+The "lethal trifecta" (Simon Willison, 2025). Everything below is arranged so the components that touch the untrusted internet hold no secrets and can't exfiltrate, and the component that holds secrets isn't a hijackable AI.
 
-## The shape
+## The pieces (all on one Mac mini, except the cloud)
 
 ```
-YOUR MAC MINI  (dedicated appliance · no public inbound)
-  llama.cpp         local model, OpenAI-compatible API on 127.0.0.1:8080  (native/launchd)
-  Khoj + Postgres   second brain over your docs (read-only); HOST-ONLY network, NO internet egress
-  n8n               mail + Telegram orchestration; credentials in its encrypted vault; egress
-  Open Interpreter  shell/code control, per-action approval                (native)
-  Cua               computer-use driver, over MCP                          (native, best-effort)
-  (Suna)            research sandbox — deferred, not yet wired for single-box
-
-CLOUD  (public only · outbound)
-  Claude + MCP      Gmail / Calendar / Drive / Quartr — non-sensitive content only
+PHONE  ── share URL/tweet ──▶  Telegram bot          (capture from anywhere; zero inbound)
+MAC MINI
+  n8n            scheduled + event jobs AND Telegram capture (polls getUpdates — no inbound).
+                 Reads the untrusted web, summarises via the local model, writes files.
+                 Holds NO secrets. Egress only to fetch sources.
+  llama.cpp      local model (Google Gemma, instruct) on 127.0.0.1:8080 — the summariser.
+  broker         (future) native macOS helper: the ONLY reader of the Keychain; performs the
+                 few credentialed actions (e.g. X API fetch) so secrets never enter n8n.
+  ── writes ──▶  THE FOLDER  ◀── indexes ──  Notesage   (your second brain — separate app)
+CLOUD (optional) Claude/MCP for public research only.
 ```
 
-Containerized services (Khoj, Postgres, n8n) run in **Apple `container`** (per-container micro-VM).
-Khoj sits on a dedicated host-only network (`--internal`) so it has **no internet egress**; n8n has
-egress because its job is to send. Each UI is published to `127.0.0.1` only.
+- **macOS Keychain** holds every secret. Neither n8n nor Notesage stores keys; the native **broker** is the only thing that reads Keychain and acts on them.
+- **The folder is the airlock:** n8n only ever *writes* to it; Notesage only ever *reads* it. One-way, file-mediated.
 
-## How it connects
+## The two flows
 
+**Capture (mobile → knowledge):**
 ```
-  You  ── Telegram ──▶  n8n        commands; n8n POLLS Telegram (getUpdates), sender chat-id allowlisted
-  n8n  ── outbound ──▶  Telegram / Gmail / Claude     (it holds the credentials; sends are human-gated)
-  Khoj ── localhost ──▶ llama.cpp  (via a host-only bridge proxy; Khoj has no other network)
-  containers ──▶ llama.cpp   over the host-only gateway; the model itself stays on 127.0.0.1
+phone Share → Telegram bot → n8n polls getUpdates → fetch URL + extract + summarise (local Gemma)
+  → write {title, source, date, tags, summary, body}.md → THE FOLDER → Notesage indexes it
 ```
 
-**There is zero public inbound.** Telegram is reached by *polling*, not a webhook — nothing listens
-for the internet. The cloud is reached outbound-only, for public content.
-
-## The two data flows
-
-**Private flow — never leaves the mini:**
-
+**Scheduled / event jobs:**
 ```
-  your docs ──▶ local model (llama.cpp / Khoj) ──▶ YOU
-              no credentials needed · no internet egress
+cron/RSS/market trigger (or a watched-folder change) → n8n fetch + summarise → file → THE FOLDER
 ```
 
-**Automation flow — the trifecta broken across steps:**
+## Trifecta audit
 
-```
-  inbox / web ──▶  AI step  ──▶  [ YOU approve ]  ──▶  deterministic send
-  (untrusted)      summarize/      gate on every        Gmail/Telegram node
-                   draft           irreversible          holds the credential
-                   no creds         action               allowlist enforced
-```
+| Component | Reads untrusted? | Holds credentials? | Can send/exfiltrate? |
+|---|---|---|---|
+| n8n | yes (web, tweets) | **no** (broker does) | only *writes local files*; egress is fetch-only |
+| llama.cpp (Gemma) | the text it's given | no | no (localhost) |
+| broker (native) | no | yes (from Keychain) | yes — but **not an AI**; deterministic + allowlisted + approved |
+| Notesage | yes (your notes + the ingested files) | no send creds | no (it's the reader of the airlock) |
+| Claude/MCP (optional) | public only | vendor-managed | supervised |
 
-The AI step and the sending step are *different components*. The model drafts text; it never holds
-the credential and never triggers the send. Your approval and a recipient allowlist sit between
-them. That is the trifecta broken inside a single workflow.
+No hijackable agent has all three. A poisoned article can at worst make a *summary* wrong; the thing that reads that summary (Notesage) can't send, and the thing that can send (broker) isn't an AI.
 
-## Component privileges (a trifecta audit)
+## Why Telegram
 
-| Component | Holds credentials? | Reads untrusted? | Can send? | How it runs |
-|---|---|---|---|---|
-| llama.cpp | No | No | No | native, 127.0.0.1 |
-| Khoj (+Postgres) | No | Your docs (sandboxed, read-only) | No (host-only net, no egress) | container |
-| Open Interpreter | No | No | Approved code only | native |
-| Cua | No | No | Via orchestrator | native |
-| n8n | Yes (vault) | Yes (email/web) | Yes — human-gated + allowlisted | container (egress) |
-| Claude + MCP | Vendor-managed | Yes (public only) | Supervised | cloud |
+It's the **mobile capture transport**: your phone's Share Sheet → the bot → n8n *polls* it. That gives you "send this to my brain from anywhere" with **no public inbound port** — the whole reason it's here. (It can also carry notifications/approvals later.)
 
-The only row that holds credentials *and* can send (n8n) never lets the model hold the credential or
-send unsupervised; the rows that read untrusted content (Khoj, Claude) cannot send (Khoj literally
-has no internet). **No row has all three.**
+## What this repo installs vs. what you bring
 
-## Invariants this repo enforces
+- **Installs/runs:** n8n (container), llama.cpp + a local Gemma model, the folder contract, (later) the broker.
+- **You bring:** Notesage (the brain/UI/indexer), and a Telegram bot token.
 
-`make verify` and CI check these — break any and the design is compromised:
+## Open questions (being decided)
 
-1. Services listen only on `127.0.0.1` or the host-only container-network gateway (the llama
-   bridge) — never a public interface. There is **no public inbound**. `make verify` enforces this.
-2. Khoj runs on a host-only (`--internal`) network → **no internet egress** (the "can send" leg is
-   removed for the content-reader). `make verify` checks it.
-3. Credentials live in n8n's encrypted vault (or `secrets/`), never in a model's context or a
-   tracked file.
-4. The mail/Telegram write path keeps the model credential-free, gated by human approval and a
-   recipient allowlist (embedded in the workflow, not a manual paste).
-5. Sensitive work routes to the local model; nothing private egresses to the cloud.
-6. Telegram is reached by polling — no inbound webhook.
-7. The allowlist guard is unit-tested by `make verify` (`scripts/injection-selftest.sh`); the full
-   end-to-end prompt-injection test (`scripts/injection-selftest.md`) is run manually.
-
-## Why one box (and the trade-off)
-
-A single always-on mini is simpler, more deterministic, and has a smaller external surface (no
-inbound) than a multi-host design. The honest trade-off: a multi-host model gave physical isolation
-between the internet-facing automation and your private data; here that becomes **container
-isolation** on one box. That is why the mini should be a **dedicated appliance**, not your
-daily-driver with personal files.
+1. **Local model:** which Gemma — version (3 vs 4 if available) and size (4B / 12B / 27B)? Summarising wants quality-per-RAM; 4B–12B instruct is the likely sweet spot. Exact GGUF repo/file TBD.
+2. **One model or share Notesage's?** Notesage already bundles a `llama-server`. Do we run a *dedicated* llama.cpp here, or point n8n at Notesage's? (Avoids two model servers, but couples the two apps.)
+3. **The folder contract:** where does it live (inside Notesage's indexed dir?), and what file/frontmatter format does Notesage index best?
+4. **Broker now or later?** v1 could handle only public URLs (no secrets, no broker); tweets/X need the X API (→ broker). Ship plain-URL capture first?
+5. **Event triggers:** "document changes" implies n8n watches the folder — requires mounting it into the n8n container.
+6. **Does the guided installer/teardown still fit** now that scope is just n8n + model + folder, with Notesage external?
 
 ## Where to go next
-
-- What each component is and why it was chosen: [`COMPONENTS.md`](COMPONENTS.md).
-- Build it: `README.md` → `make setup`.
-- The irreducible manual steps: `docs-MANUAL-STEPS.md`.
-- The threat model and how to report issues: `SECURITY.md`.
-- The standing safety test: `scripts/injection-selftest.md`.
+- What each component is and why: [`COMPONENTS.md`](COMPONENTS.md).
+- Build/run: [`README.md`](README.md).
+- Threat model: [`SECURITY.md`](SECURITY.md).
