@@ -26,13 +26,8 @@ jobs:
 
       # Hard gate: syntax must be valid (deterministic, no style opinions).
       - name: Ansible syntax check
-        env:
-          # Dummy values so inventory/templating resolve during the check.
-          VPS_HOST: example.com
-          VPS_USER: deploy
         run: |
           ansible-playbook -i ansible/inventory.ini ansible/mac.yml --syntax-check
-          ansible-playbook -i ansible/inventory.ini ansible/vps.yml --syntax-check
 
       # Soft gate: ansible-lint is advisory (style/best-practice), not blocking on day one.
       - name: Ansible lint (advisory)

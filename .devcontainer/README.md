@@ -28,7 +28,7 @@ This container validates and lints the IaC; it does **not** run the stack.
 
 - `make mac` targets macOS (Homebrew, launchd) and cannot run in this Linux container — run it
   on the Mac itself.
-- `make vps` / `make tunnel` provision your real VPS over SSH and need your `.env` + keys.
+- `make mac` provisions the real Mac mini (Apple `container`, launchd) and needs your `.env`.
 
 Treat the container as the place to catch syntax/lint/parse errors (like the kind CI gates on),
 not as a substitute for the hosts the stack actually deploys to.

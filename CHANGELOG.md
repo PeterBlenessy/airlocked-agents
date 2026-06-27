@@ -5,11 +5,23 @@ All notable changes to this project are documented here. The format follows
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-### Changed (direction)
-- **Architecture is moving to a single dedicated Mac mini** running everything locally in Apple
-  `container` — no VPS, no WireGuard tunnel, Telegram by polling (zero public inbound). The
-  lethal-trifecta invariant is unchanged but enforced at the component level. Refactor in progress;
-  see the direction note at the top of `ARCHITECTURE.md`.
+### Changed (single-box refactor)
+- **Everything now runs on one dedicated Mac mini — the VPS and WireGuard tunnel are removed.**
+  Deleted `ansible/vps.yml`, the `wireguard/` templates, the llama tunnel proxy, and the
+  `make vps`/`tunnel`/`harden` targets + SSH-hardening/ufw layer. `.env` lost all VPS/WG/hardening
+  vars. `ansible/mac.yml` + `make mac` now bring up the whole stack (llama.cpp, Khoj+Postgres, n8n)
+  locally. The lethal-trifecta invariant is unchanged, enforced at the component level.
+- **n8n runs locally in a container** (`mac/n8n-runtime.sh`, Apple `container` or compose): UI on
+  `127.0.0.1`, internet egress (it sends), **Telegram by polling — no webhook, no public inbound**.
+- **Fixed the n8n workflow import**: the old VPS command pointed `--input` at a nonexistent path and
+  silently never imported (so the allowlist guard never loaded). It now imports each skeleton after
+  n8n is healthy.
+- `compose/n8n.yml` rewritten for localhost/no-webhook; `make verify` checks single-box boundaries
+  (no public listeners, Khoj has no egress, n8n healthy) instead of the old VPS firewall/SSH checks.
+- Docs (`ARCHITECTURE`, `README`, `COMPONENTS`, `SECURITY`, `docs-MANUAL-STEPS`) rewritten for the
+  single-box model. **Suna is deferred** (not yet wired for single-box).
+- *Note:* the n8n container path is verified-by-pattern (identical to the Khoj path proven live);
+  the one live n8n smoke test is pending a Docker registry pull (rate-limited during the build).
 
 ### Added
 - **Khoj now actually runs.** It requires a Postgres (pgvector) database and an admin/non-interactive

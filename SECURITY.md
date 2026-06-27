@@ -23,7 +23,7 @@ The system is designed against four threats, in rough order of likelihood:
 ### Explicitly out of scope (you own these)
 
 - The security of the cloud providers themselves (Anthropic, Google) and your accounts with them.
-- Physical access to your Mac or VPS, and OS-level compromise of those hosts.
+- Physical access to the Mac mini, and OS-level compromise of that host.
 - Secrets you choose to place outside the vault, or workflows you modify to violate the invariants.
 
 ## What this repo does and does not guarantee
@@ -35,8 +35,8 @@ The system is designed against four threats, in rough order of likelihood:
 ## Operating securely
 
 - Run `make verify` after every change (it runs the automated allowlist-guard self-test); run the full end-to-end prompt-injection test (`scripts/injection-selftest.md`) by hand after any workflow change.
-- Keep local services bound to `127.0.0.1` (the model is re-exposed to the VPS only on the WireGuard interface); keep the VPS firewall at its three inbound rules — SSH, HTTPS, WireGuard — with 443 the only application ingress.
-- Once the tunnel is up, run `make harden`: SSH (22) is then locked to the Mac's tunnel peer (`MAC_TUNNEL_IP/32`, matching what WireGuard already enforces) plus an optional `ADMIN_IP` break-glass, removing public SSH entirely. Set `SSH_HARDENED=true` in `.env` to keep it that way; afterwards ansible and `make verify` manage the box over `VPS_TUNNEL_IP`. The first `make vps` must run *before* this (provisioning uses public SSH), and `make harden` aborts unless a recent WireGuard handshake exists, so it can't lock you out.
+- Keep all services bound to `127.0.0.1` or the host-only container-network gateway — **never a public interface**. There is no public inbound: Telegram is reached by polling, not a webhook. `make verify` checks this.
+- Keep Khoj on its host-only (`--internal`) network so it has **no internet egress**. Run the mini as a **dedicated appliance** (not your daily-driver), since the security model relies on container isolation on one box rather than separate hosts.
 - Route anything client-confidential to the local model; never to a cloud model.
 - Back up the n8n encryption key offline; rotate OAuth scopes to the minimum needed.
 - Pin image tags and package versions; review Dependabot PRs for the GitHub Actions you use.

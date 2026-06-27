@@ -2,7 +2,7 @@
 # scripts/setup.sh — the guided, low-friction entrypoint for airlocked-agents.
 #
 # It inspects the machine, offers to install what's missing, walks you through every
-# choice and secret with live validation, generates the WireGuard keys for you, writes
+# choice and secret with live validation, generates the secrets it can, writes
 # .env, and runs the make targets in the correct order. Re-runnable and idempotent:
 # anything already set is offered as the default, so a second run just fills gaps.
 #
@@ -129,7 +129,7 @@ doctor() {
   fi
 
   # Installed by 'make mac' via the Brewfile, but nice to report.
-  for t in node jq socat wg huggingface-cli; do
+  for t in node jq socat huggingface-cli; do
     have "$t" && ok "$t" || say "  ${DIM}· $t — will be installed by 'make mac'${R}"
   done
   have gh && ok "gh (for make repo)" || say "  ${DIM}· gh — optional, only for publishing${R}"
@@ -160,43 +160,13 @@ offer_installs() {
 choose_mode() {
   # All UI goes to stderr; only the chosen value goes to stdout (this fn is captured).
   { hdr "What do you want to set up?"
-    say "  ${B}1${R}) Local core only  — the Mac private brain (llama.cpp + Khoj). No VPS, no cloud accounts."
-    say "  ${B}2${R}) Full stack       — Mac + VPS (n8n, Telegram, Suna) over the WireGuard tunnel."
-    say "  ${B}3${R}) Doctor only      — just check the system and exit."
+    say "  ${B}1${R}) Set up the local stack — llama.cpp, Khoj, n8n (everything on this Mac)."
+    say "  ${B}2${R}) Doctor only — just check the system and exit."
   } >&2
   ask "Choose" "1"
 }
 
 # ---- secret collection ------------------------------------------------------
-collect_local() {
-  hdr "Local model configuration"
-  set_var MODEL_REPO "HuggingFace repo for the GGUF model" "Qwen/Qwen3-Coder-30B-A3B-Instruct-GGUF"
-  set_var MODEL_FILE "Model file within that repo" "qwen3-coder-30b-a3b-instruct-q5_k_m.gguf"
-  set_var MODEL_DIR  "Where to store models" "$HOME/models"
-  set_var LLAMA_PORT "Local model port" "8080"
-  set_var KHOJ_DOCS_DIR "Folder to index in Khoj (read-only)" "$HOME/Documents/research"
-  # Local-only: make sure the VPS checks in `make verify` don't try to SSH anywhere.
-  if [ -n "$(env_get VPS_HOST)" ] && [ "$(env_get VPS_HOST)" != "vps.example.com" ]; then :; else
-    env_set VPS_HOST ""   # blank => verify.sh skips the VPS boundary checks
-  fi
-  ok ".env updated for a local-only run."
-}
-
-gen_wireguard_keys() {
-  is_dry && { plan "Generate two WireGuard key pairs (WG_MAC_*, WG_VPS_*)"; return; }
-  have wg || { if confirm "WireGuard tools needed to generate keys. Install wireguard-tools via brew?" y; then brew install wireguard-tools; fi; }
-  have wg || { warn "wg not available — skipping key generation; fill WG_* in .env manually."; return; }
-  if [ -n "$(env_get WG_MAC_PRIVATE_KEY)" ] && [[ "$(env_get WG_MAC_PRIVATE_KEY)" != __* ]]; then
-    confirm "WireGuard keys already set. Regenerate (invalidates the current tunnel)?" n || { ok "Keeping existing WireGuard keys."; return; }
-  fi
-  local mpriv mpub vpriv vpub
-  mpriv="$(wg genkey)"; mpub="$(printf '%s' "$mpriv" | wg pubkey)"
-  vpriv="$(wg genkey)"; vpub="$(printf '%s' "$vpriv" | wg pubkey)"
-  env_set WG_MAC_PRIVATE_KEY "$mpriv"; env_set WG_MAC_PUBLIC_KEY "$mpub"
-  env_set WG_VPS_PRIVATE_KEY "$vpriv"; env_set WG_VPS_PUBLIC_KEY "$vpub"
-  ok "Generated both WireGuard key pairs (the old manual step #4 — now automatic)."
-}
-
 validate_telegram() {
   local token="$1"
   [ -z "$token" ] && return 1
@@ -225,19 +195,24 @@ collect_telegram() {
   env_set TELEGRAM_ALLOWED_CHAT_ID "$(ask "Your numeric chat id" "$cur")"
 }
 
-collect_full() {
-  collect_local
-  hdr "VPS"
-  set_var VPS_HOST "VPS hostname/IP (SSH-reachable)" "$(env_get VPS_HOST)"
-  set_var VPS_USER "SSH user with sudo on the VPS" "deploy"
-  local host user; host="$(env_get VPS_HOST)"; user="$(env_get VPS_USER)"
-  if [ -n "$host" ] && [ "$host" != "vps.example.com" ]; then
-    if ssh -o BatchMode=yes -o ConnectTimeout=6 "${user}@${host}" true 2>/dev/null; then
-      ok "SSH to ${user}@${host} works."
-    else
-      warn "Could not SSH to ${user}@${host} non-interactively (set up a key, or you'll be prompted during provisioning)."
-    fi
+collect_stack() {
+  hdr "Local model"
+  set_var MODEL_REPO "HuggingFace repo for the GGUF model" "Qwen/Qwen3-Coder-30B-A3B-Instruct-GGUF"
+  set_var MODEL_FILE "Model file within that repo" "qwen3-coder-30b-a3b-instruct-q5_k_m.gguf"
+  set_var MODEL_DIR  "Where to store models" "$HOME/models"
+  set_var LLAMA_PORT "Local model port" "8080"
+
+  hdr "Khoj (second brain over your docs)"
+  set_var KHOJ_DOCS_DIR "Folder to index in Khoj (read-only)" "$HOME/Documents/research"
+  if [ -z "$(env_get KHOJ_ADMIN_PASSWORD)" ] || [ "$(env_get KHOJ_ADMIN_PASSWORD)" = "__set_me__" ]; then
+    env_set KHOJ_ADMIN_PASSWORD "$(openssl rand -base64 18)"; ok "Generated Khoj admin password (in .env)."
   fi
+
+  hdr "n8n (automation orchestrator)"
+  if [ -z "$(env_get N8N_ENCRYPTION_KEY)" ] || [ "$(env_get N8N_ENCRYPTION_KEY)" = "__set_me__" ]; then
+    env_set N8N_ENCRYPTION_KEY "$(openssl rand -hex 24)"; ok "Generated n8n encryption key — BACK THIS UP (in .env)."
+  fi
+  say "  ${DIM}n8n's owner account is created once in the UI at http://127.0.0.1:$(env_get N8N_PORT || echo 5678).${R}"
 
   collect_telegram
 
@@ -249,28 +224,8 @@ collect_full() {
   set_secret GMAIL_OAUTH_CLIENT_ID "Gmail OAuth client id"
   set_secret GMAIL_OAUTH_CLIENT_SECRET "Gmail OAuth client secret"
 
-  hdr "n8n"
-  set_var N8N_HOST "Public HTTPS hostname for n8n (behind your reverse proxy)" "$(env_get N8N_HOST)"
-  set_var N8N_BASIC_AUTH_USER "n8n admin user" "admin"
-  if [ -z "$(env_get N8N_BASIC_AUTH_PASSWORD)" ] || [ "$(env_get N8N_BASIC_AUTH_PASSWORD)" = "__set_me__" ]; then
-    if confirm "Generate a random n8n admin password?" y; then env_set N8N_BASIC_AUTH_PASSWORD "$(openssl rand -base64 18)"; ok "Generated n8n password (in .env)."; fi
-  fi
-  if [ -z "$(env_get N8N_ENCRYPTION_KEY)" ] || [ "$(env_get N8N_ENCRYPTION_KEY)" = "__set_me__" ]; then
-    env_set N8N_ENCRYPTION_KEY "$(openssl rand -hex 24)"; ok "Generated n8n encryption key — BACK THIS UP (in .env)."
-  fi
-
-  hdr "Suna research rig"
-  say "  Create a Supabase project (https://supabase.com) → copy URL + keys."
-  set_var SUPABASE_URL "Supabase URL" "$(env_get SUPABASE_URL)"
-  set_secret SUPABASE_ANON_KEY "Supabase anon key"
-  set_secret SUPABASE_SERVICE_KEY "Supabase service key"
-  set_secret ANTHROPIC_API_KEY "Anthropic API key (public research)"
-
-  gen_wireguard_keys
-
-  # Keep LOCAL_MODEL_BASE_URL consistent with the tunnel IP + port.
-  local tip lport; tip="$(env_get MAC_TUNNEL_IP)"; lport="$(env_get LLAMA_PORT)"
-  env_set LOCAL_MODEL_BASE_URL "http://${tip:-10.10.0.2}:${lport:-8080}/v1"
+  hdr "Cloud (public research)"
+  set_secret ANTHROPIC_API_KEY "Anthropic API key (for public/non-sensitive work)"
 }
 
 # ---- execution --------------------------------------------------------------
@@ -314,8 +269,8 @@ ensure_container_runtime() {
   esac
 }
 
-run_local() {
-  hdr "Provision the local core"
+run_stack() {
+  hdr "Provision the local stack"
 
   if confirm "Download the model now? (multi-GB — skip if you already have it)" n; then
     local mp; mp="$(expand_tilde "$(env_get MODEL_DIR)")/$(env_get MODEL_FILE)"
@@ -324,7 +279,7 @@ run_local() {
     [ "$had" -eq 0 ] && [ -f "$mp" ] && rec model "$mp"
   fi
 
-  if confirm "Run 'make mac' to install and start the local core?" y; then
+  if confirm "Run 'make mac' to install and start the local stack (llama, Khoj, n8n)?" y; then
     # Snapshot package state BEFORE installing, so we record only what we add.
     local missing_f=() missing_c=() miss_pipx=0 miss_npm=0 f
     while IFS= read -r f; do [ -n "$f" ] && ! brew_has_formula "$f" && missing_f+=("$f"); done < <(brewfile_formulae)
@@ -343,53 +298,34 @@ run_local() {
     for f in "${missing_c[@]:-}"; do [ -n "$f" ] && brew_has_cask "$f" && rec brew_cask "$f"; done
     [ "$miss_pipx" -eq 1 ] && pipx_has open-interpreter && rec pipx open-interpreter
     [ "$miss_npm" -eq 1 ] && npm_has @cua/cli && rec npm_global @cua/cli
-    # Artifacts make mac creates (removal is idempotent, so safe to always record).
+    # Native launchd artifacts make mac creates (removal is idempotent, so safe to always record).
     rec launchd com.local.llama-server
-    rec launchd com.local.llama-tunnel
     rec file "$HOME/Library/LaunchAgents/com.local.llama-server.plist"
-    rec file "$HOME/Library/LaunchAgents/com.local.llama-tunnel.plist"
     rec file "$HOME/Library/Logs/llama-server.log"
     rec file "$HOME/Library/Logs/llama-server.err.log"
-    rec file "$HOME/Library/Logs/llama-tunnel.log"
-    rec file "$HOME/Library/Logs/llama-tunnel.err.log"
-    # Khoj artifacts depend on the container runtime.
+    # Container artifacts depend on the runtime.
     local rt; rt="$(env_get CONTAINER_RUNTIME)"; rt="${rt:-apple}"
     if [ "$rt" = "apple" ]; then
       rec apple_container khoj
       rec apple_container khoj-db
+      rec apple_container n8n
       rec apple_network "$(env_get KHOJ_NETWORK || echo khojnet)"
       rec apple_volume "$(env_get KHOJ_DB_VOLUME || echo khoj_db)"
       rec apple_volume "$(env_get KHOJ_DATA_VOLUME || echo khoj_data)"
+      rec apple_volume "$(env_get N8N_DATA_VOLUME || echo n8n_data)"
       rec launchd com.local.llama-khojbridge
       rec file "$HOME/Library/LaunchAgents/com.local.llama-khojbridge.plist"
     else
       rec compose "$ROOT/compose/khoj.yml"
+      rec compose "$ROOT/compose/n8n.yml"
     fi
   fi
 
-  confirm "Run 'make verify'?" y && make verify
-}
-
-run_full() {
-  run_local
-  hdr "Provision the VPS"
-  if confirm "Run 'make vps' (provisions the VPS over public SSH)?" y; then
-    make vps && rec vps "$(env_get VPS_HOST)" "$(env_get VPS_USER)"
-  fi
-  hdr "Tunnel"
-  confirm "Run 'make tunnel'?" y && {
-    make tunnel
-    rec note "Remove the airlocked-agents tunnel from the WireGuard app on the Mac (GUI)."
-    say "  ${Y}Now import the rendered wireguard/wg0.mac.conf into the WireGuard app and activate it.${R}"
-    say "  ${DIM}(WireGuard's macOS app needs the GUI; this is the one bit we can't do for you.)${R}"
-    confirm "Tunnel activated and connected?" n && {
-      if confirm "Lock SSH to the tunnel now ('make harden')?" y; then make harden && env_set SSH_HARDENED true; fi
-    }
-  }
-  confirm "Import the n8n workflows ('make workflows')?" y && make workflows
   hdr "Almost there"
-  say "  Finish the inherently-interactive bits in the n8n editor: connect the Gmail OAuth"
-  say "  credential (click Connect), and run Suna's setup wizard on the VPS (see docs-MANUAL-STEPS.md)."
+  say "  Finish the inherently-interactive bits in the n8n editor (http://127.0.0.1:$(env_get N8N_PORT || echo 5678)):"
+  say "  create the owner account, connect the Gmail OAuth credential (click Connect), and wire the"
+  say "  Telegram-polling workflow. See docs-MANUAL-STEPS.md."
+  confirm "Run 'make verify'?" y && make verify
 }
 
 # ---- dry-run plan -----------------------------------------------------------
@@ -404,16 +340,16 @@ preview_env() {  # print the (temp) .env, masking secret-looking values
 }
 
 print_plan() {
-  local mode="$1" f miss_f=() miss_c=()
+  local f miss_f=() miss_c=()
   hdr "Plan — what a real run would do (nothing below has happened)"
 
   [ "${#REQUIRED_MISSING[@]}" -gt 0 ] && plan "Offer to install prerequisites: ${REQUIRED_MISSING[*]}"
 
   local rt; rt="$(env_get CONTAINER_RUNTIME)"; rt="${rt:-apple}"
   case "$rt" in
-    apple)  plan "Container runtime: install Apple 'container'; run Khoj + Postgres on a host-only network ($(env_get KHOJ_SUBNET || echo 192.168.66.0/24), no internet egress); UI via --publish, llama via a bridge proxy" ;;
-    colima) plan "Container runtime: install + start Colima; run Khoj via docker compose" ;;
-    docker) plan "Container runtime: use Docker Desktop; run Khoj via docker compose" ;;
+    apple)  plan "Container runtime: install Apple 'container'. Khoj + Postgres on a host-only network ($(env_get KHOJ_SUBNET || echo 192.168.66.0/24), no internet egress); n8n with egress. UIs via --publish to 127.0.0.1." ;;
+    colima) plan "Container runtime: install + start Colima; run Khoj + n8n via docker compose" ;;
+    docker) plan "Container runtime: use Docker Desktop; run Khoj + n8n via docker compose" ;;
   esac
 
   while IFS= read -r f; do [ -n "$f" ] && ! brew_has_formula "$f" && miss_f+=("$f"); done < <(brewfile_formulae)
@@ -423,22 +359,14 @@ print_plan() {
   [ "${#miss_c[@]}" -gt 0 ] && say "      - brew install --cask: ${miss_c[*]}"
   pipx_has open-interpreter || say "      - pipx install open-interpreter"
   npm_has @cua/cli || say "      - npm install -g @cua/cli (best-effort)"
-  say "      - load launchd agents: com.local.llama-server, com.local.llama-tunnel"
-  say "      - start the Khoj container (compose/khoj.yml)"
+  say "      - load launchd agent: com.local.llama-server"
+  say "      - start Khoj + Postgres (no egress) and n8n (egress, Telegram polling)"
 
   local mp; mp="$(expand_tilde "$(env_get MODEL_DIR)")/$(env_get MODEL_FILE)"
   if [ -f "$mp" ]; then say "      - model already present (no download): $mp"; else plan "Download the model (multi-GB) to $mp"; fi
 
+  plan "Import the n8n workflow skeletons once n8n is healthy"
   plan "Run 'make verify' (health + boundary checks)"
-
-  if [ "$mode" = "2" ]; then
-    plan "Run 'make vps' on '$(env_get VPS_HOST)': docker, n8n, ufw (22/443/WG), WireGuard, clone Suna"
-    plan "Run 'make tunnel' (then you import wg0.mac.conf into the WireGuard app)"
-    plan "Run 'make harden' (lock VPS SSH to the tunnel)"
-    plan "Run 'make workflows' (import the n8n skeletons)"
-    say  "      - still manual after: connect Gmail OAuth in n8n, run Suna's setup.py"
-  fi
-
   plan "Record every change to .airlocked/manifest.tsv so 'make teardown' can reverse it"
 
   hdr "Config that would be written to .env (secrets masked)"
@@ -459,7 +387,8 @@ main() {
   offer_installs
 
   local mode; mode="$(choose_mode)"
-  [ "$mode" = "3" ] && exit 0
+  [ "$mode" = "2" ] && exit 0
+  [ "$mode" = "1" ] || die "Unknown choice: $mode"
 
   local tmpd=""
   if is_dry; then
@@ -472,11 +401,8 @@ main() {
     [ -f "$ENV_FILE" ] || { cp "$ROOT/.env.example" "$ENV_FILE"; ok "Created .env from template."; rec env "$ENV_FILE"; }
   fi
 
-  case "$mode" in
-    1) collect_local; if is_dry; then print_plan 1; else run_local; fi ;;
-    2) collect_full;  if is_dry; then print_plan 2; else run_full;  fi ;;
-    *) die "Unknown choice: $mode" ;;
-  esac
+  collect_stack
+  if is_dry; then print_plan; else run_stack; fi
 
   if is_dry; then
     [ -n "$tmpd" ] && rm -rf "$tmpd" 2>/dev/null

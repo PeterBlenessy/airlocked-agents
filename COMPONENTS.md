@@ -11,7 +11,11 @@ as for what they do.
 
 ---
 
-## Zone A — Your Mac (the private core)
+> Everything below the cloud section runs on **one dedicated Mac mini** (Apple `container` or
+> native launchd). The "Zone" headings describe *roles* (private core, automation, cloud), not
+> separate machines — the only real split is local vs. cloud.
+
+## The private core (on the mini)
 
 ### llama.cpp
 - **What it is:** an open-source LLM inference engine (by Georgi Gerganov), written in C/C++. It
@@ -70,7 +74,7 @@ as for what they do.
 
 ---
 
-## Zone B — The VPS (automation glue + research sandbox)
+## Automation + research (on the mini)
 
 ### n8n
 - **What it is:** an open-source **workflow automation** platform — a self-hosted alternative to
@@ -78,7 +82,8 @@ as for what they do.
   send), and it has an **encrypted credential vault**.
 - **Its job here:** the **orchestrator** tying mail, Telegram, and the models together — and the
   one component that legitimately *holds credentials and can send*. The design deliberately keeps
-  the model out of that credential/send path. Bound to `127.0.0.1`, behind the reverse proxy.
+  the model out of that credential/send path. UI bound to `127.0.0.1` only; Telegram is **polled**
+  (no webhook), so n8n has no public inbound.
 - **Why it over alternatives:** Zapier/Make are cloud SaaS — your credentials would live on
   someone else's servers (disqualifying). Node-RED/Huginn are more DIY. n8n is self-hostable, has
   the credential vault, a big integration library, and a clean human-in-the-loop pattern — which is
@@ -90,14 +95,15 @@ as for what they do.
   "Manus" alternative.
 - **Its job here:** the **research rig** — reads the (untrusted) web, but runs **sandboxed with no
   inbox, no credentials, and no send path**, so a poisoned page can't make it exfiltrate. Public
-  research goes to Claude; sensitive research is routed to your local model over the tunnel.
+  research goes to Claude; sensitive research is routed to your local model. **Status: deferred** —
+  Suna is a heavy multi-service stack and is not yet wired for the single-box model.
 - **Why it over alternatives:** lighter research scripts (e.g. GPT-Researcher) are less
   full-featured; cloud agent products aren't self-hostable/sandboxable. Suna is open-source and can
   be isolated, fitting the "reads the web but can't leak" slot.
 
 ---
 
-## Zone C — Cloud (public only, outbound)
+## Cloud (public only, outbound)
 
 ### Claude + MCP
 - **What it is:** **Claude** is Anthropic's family of LLMs (the strong cloud model). **MCP (Model
@@ -114,7 +120,8 @@ as for what they do.
 ## Supporting players
 
 ### Telegram (bot)
-- **What it is:** a messaging app with a trivial, free **bot API** and webhook support.
+- **What it is:** a messaging app with a trivial, free **bot API**. We reach it by **polling**
+  (Schedule + getUpdates) rather than a webhook, so there is no public inbound.
 - **Its job here:** your **command + notification channel** — you issue commands and receive
   drafts/alerts.
 - **Why it / the catch:** chosen for the easy bot API and ubiquity. Because it's a *cloud* channel,
