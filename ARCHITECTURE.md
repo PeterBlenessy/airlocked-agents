@@ -18,7 +18,8 @@ MAC MINI
   n8n            scheduled + event jobs AND Telegram capture (polls getUpdates — no inbound).
                  Reads the untrusted web, summarises via the local model, writes files.
                  Holds NO secrets. Egress only to fetch sources.
-  llama.cpp      local model (Google Gemma, instruct) on 127.0.0.1:8080 — the summariser.
+  llama.cpp      DEDICATED local model — Google Gemma 4 E4B (instruct), 127.0.0.1:8080 — the
+                 summariser. (Dedicated, because Notesage may run on a different Mac.)
   broker         (future) native macOS helper: the ONLY reader of the Keychain; performs the
                  few credentialed actions (e.g. X API fetch) so secrets never enter n8n.
   ── writes ──▶  THE FOLDER  ◀── indexes ──  Notesage   (your second brain — separate app)
@@ -26,7 +27,7 @@ CLOUD (optional) Claude/MCP for public research only.
 ```
 
 - **macOS Keychain** holds every secret. Neither n8n nor Notesage stores keys; the native **broker** is the only thing that reads Keychain and acts on them.
-- **The folder is the airlock:** n8n only ever *writes* to it; Notesage only ever *reads* it. One-way, file-mediated.
+- **The folder is the airlock:** n8n only ever *writes* to it; Notesage only ever *reads* it. One-way, file-mediated. Its path is **user-configured (`CAPTURE_DIR`) — typically an iCloud Drive folder synced across your Macs — and is never hardcoded in the IaC.**
 
 ## The two flows
 
@@ -62,14 +63,16 @@ It's the **mobile capture transport**: your phone's Share Sheet → the bot → 
 - **Installs/runs:** n8n (container), llama.cpp + a local Gemma model, the folder contract, (later) the broker.
 - **You bring:** Notesage (the brain/UI/indexer), and a Telegram bot token.
 
-## Open questions (being decided)
+## Decisions made
+- **Dedicated llama.cpp** here (Notesage may run on another Mac) — not shared with Notesage.
+- **Model: Google Gemma 4 E4B instruct** (`bartowski/google_gemma-4-E4B-it-GGUF`) — the small model Notesage also uses.
+- **`CAPTURE_DIR` is user-configured (an iCloud Drive folder), never hardcoded** in the IaC.
 
-1. **Local model:** which Gemma — version (3 vs 4 if available) and size (4B / 12B / 27B)? Summarising wants quality-per-RAM; 4B–12B instruct is the likely sweet spot. Exact GGUF repo/file TBD.
-2. **One model or share Notesage's?** Notesage already bundles a `llama-server`. Do we run a *dedicated* llama.cpp here, or point n8n at Notesage's? (Avoids two model servers, but couples the two apps.)
-3. **The folder contract:** where does it live (inside Notesage's indexed dir?), and what file/frontmatter format does Notesage index best?
-4. **Broker now or later?** v1 could handle only public URLs (no secrets, no broker); tweets/X need the X API (→ broker). Ship plain-URL capture first?
-5. **Event triggers:** "document changes" implies n8n watches the folder — requires mounting it into the n8n container.
-6. **Does the guided installer/teardown still fit** now that scope is just n8n + model + folder, with Notesage external?
+## Open questions (still)
+1. **File contract:** what `.md` layout/frontmatter does Notesage's indexer pick up best (so captures show source URL, date, tags cleanly)?
+2. **Broker now or later?** v1 can handle public URLs with **no secrets, no broker**; tweets/X need the X API (→ broker). Ship plain-URL capture first?
+3. **Event triggers:** "document changes" implies n8n watches the folder — requires mounting `CAPTURE_DIR` into the n8n container (read access). OK?
+4. **Installer scope:** with Notesage external, the big `make setup` likely shrinks to "run n8n + model + set `CAPTURE_DIR` + load the capture workflow."
 
 ## Where to go next
 - What each component is and why: [`COMPONENTS.md`](COMPONENTS.md).
