@@ -20,6 +20,13 @@ N8N_IMAGE="${N8N_IMAGE:-docker.io/n8nio/n8n:latest}"
 N8N_PORT="${N8N_PORT:-5678}"
 N8N_DATA_VOLUME="${N8N_DATA_VOLUME:-n8n_data}"
 GENERIC_TIMEZONE="${GENERIC_TIMEZONE:-Europe/Stockholm}"
+# The airlock folder (host path, e.g. an iCloud Drive dir). Mounted into n8n at /capture so the
+# capture workflow can write there; Notesage indexes it. Never hardcoded — comes from .env.
+CAPTURE_DIR="${CAPTURE_DIR:-}"
+CAPTURE_DIR="${CAPTURE_DIR/#\~/$HOME}"; CAPTURE_DIR="${CAPTURE_DIR/\$HOME/$HOME}"
+# In-container URL n8n uses to reach the local model via the host-gateway bridge.
+LLAMA_BASE_URL="${LLAMA_BASE_URL:-http://192.168.64.1:8080/v1}"
+LLAMA_API_KEY="${LLAMA_API_KEY:-local-only}"
 
 die() { echo "n8n-runtime: $*" >&2; exit 1; }
 
@@ -52,11 +59,14 @@ up_apple() {
       -e "N8N_PORT=$N8N_PORT" -e N8N_LISTEN_ADDRESS=0.0.0.0 \
       -e N8N_DIAGNOSTICS_ENABLED=false -e N8N_PERSONALIZATION_ENABLED=false \
       -e "GENERIC_TIMEZONE=$GENERIC_TIMEZONE" \
+      -e "LLAMA_BASE_URL=$LLAMA_BASE_URL" -e "LLAMA_API_KEY=$LLAMA_API_KEY" \
       -p "127.0.0.1:$N8N_PORT:$N8N_PORT" \
       -v "$N8N_DATA_VOLUME:/home/node/.n8n" \
       -v "$ROOT/n8n:/workflows:ro" \
+      ${CAPTURE_DIR:+-v "$CAPTURE_DIR:/capture"} \
       "$N8N_IMAGE" >/dev/null
   fi
+  [ -z "$CAPTURE_DIR" ] && echo "  (note: CAPTURE_DIR not set — captures have nowhere to write; set it in .env)" >&2
   import_workflows "container exec n8n"
   echo "n8n up (Apple container): UI on http://127.0.0.1:$N8N_PORT"
 }

@@ -68,9 +68,34 @@ It's the **mobile capture transport**: your phone's Share Sheet → the bot → 
 - **Model: Google Gemma 4 E4B instruct** (`bartowski/google_gemma-4-E4B-it-GGUF`) — the small model Notesage also uses.
 - **`CAPTURE_DIR` is user-configured (an iCloud Drive folder), never hardcoded** in the IaC.
 
+## Capture file contract (decided — matches Notesage's indexer)
+
+Notesage indexes `.md` with YAML frontmatter and recognises exactly these capture fields
+(`src-tauri/src/index/parser.rs`): `title`, `tags`, **`source_url`**, **`date_saved`**, `doc_type`,
+`description`. So every capture/summary file airlocked-agents writes uses that schema:
+
+```markdown
+---
+title: <page or tweet title>
+source_url: https://…            # the captured URL
+date_saved: 2026-06-27T10:30:00Z # ISO 8601
+doc_type: capture                # capture | article | tweet | digest
+tags: [captured]
+description: <one-line summary>
+---
+
+# <title>
+
+<summary>
+
+<extracted readable body>
+```
+
+Notesage picks up `source_url`/`date_saved`/`tags` natively — captures show up cleanly with no
+Notesage changes needed.
+
 ## Open questions (still)
-1. **File contract:** what `.md` layout/frontmatter does Notesage's indexer pick up best (so captures show source URL, date, tags cleanly)?
-2. **Broker now or later?** v1 can handle public URLs with **no secrets, no broker**; tweets/X need the X API (→ broker). Ship plain-URL capture first?
+1. **Broker now or later?** v1 can handle public URLs with **no secrets, no broker**; tweets/X need the X API (→ broker). Ship plain-URL capture first?
 3. **Event triggers:** "document changes" implies n8n watches the folder — requires mounting `CAPTURE_DIR` into the n8n container (read access). OK?
 4. **Installer scope:** with Notesage external, the big `make setup` likely shrinks to "run n8n + model + set `CAPTURE_DIR` + load the capture workflow."
 
