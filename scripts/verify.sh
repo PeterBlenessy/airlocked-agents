@@ -18,10 +18,6 @@ if curl -fsS "http://127.0.0.1:${LLAMA_PORT:-8080}/v1/models" \
 else
   fail "llama.cpp not responding"
 fi
-# Khoj up?
-curl -fsS "http://127.0.0.1:${KHOJ_PORT:-42110}/" >/dev/null \
-  && pass "Khoj responds on localhost:${KHOJ_PORT:-42110}" \
-  || fail "Khoj not responding"
 # n8n up?
 curl -fsS "http://127.0.0.1:${N8N_PORT:-5678}/healthz" >/dev/null \
   && pass "n8n responds on localhost:${N8N_PORT:-5678}" \
@@ -29,25 +25,16 @@ curl -fsS "http://127.0.0.1:${N8N_PORT:-5678}/healthz" >/dev/null \
 
 echo "== Security boundaries =="
 # Service ports must listen ONLY on loopback or the host-only container-network gateway
-# (the llama bridge binds KHOJ_GATEWAY, a private host-only interface) — never a public one.
+# (the llama bridge binds the gateway, a private host-only interface) — never a public one.
 if command -v lsof >/dev/null; then
-  GW="${KHOJ_GATEWAY:-192.168.66.1}"
+  GW="${CONTAINER_GATEWAY:-192.168.64.1}"
   ALLOWED="$(printf '127\.0\.0\.1|%s' "$(echo "$GW" | sed 's/\./\\./g')")"
   if lsof -nP -iTCP -sTCP:LISTEN \
-       | grep -E ":(${LLAMA_PORT:-8080}|${KHOJ_PORT:-42110}|${N8N_PORT:-5678})\b" \
+       | grep -E ":(${LLAMA_PORT:-8080}|${N8N_PORT:-5678})\b" \
        | grep -vqE "($ALLOWED)"; then
     fail "A service is listening on a public interface — must be 127.0.0.1 or ${GW} (host-only) only"
   else
     pass "Services bound to 127.0.0.1 / ${GW} (host-only) only — no public inbound"
-  fi
-fi
-
-# Khoj must have NO internet egress (host-only network) — the trifecta "can send" leg.
-if command -v container >/dev/null 2>&1 && container inspect khoj >/dev/null 2>&1; then
-  if container exec khoj sh -c 'curl -s --max-time 6 -o /dev/null https://1.1.1.1/' >/dev/null 2>&1; then
-    fail "Khoj has internet egress — it must run on the host-only (--internal) network"
-  else
-    pass "Khoj has no internet egress (host-only network)"
   fi
 fi
 

@@ -44,11 +44,7 @@ rec_header() { mkdir -p "$(dirname "$MANIFEST")"; printf '# setup run %s\n' "$(d
 
 # Parse the Brewfile so the recorded names track the real package list.
 brewfile_formulae() { sed -nE 's/^brew "([^"]+)".*/\1/p' "$ROOT/mac/Brewfile"; }
-brewfile_casks()    { sed -nE 's/^cask "([^"]+)".*/\1/p' "$ROOT/mac/Brewfile"; }
 brew_has_formula()  { brew list --formula --versions "$1" >/dev/null 2>&1; }
-brew_has_cask()     { brew list --cask --versions "$1" >/dev/null 2>&1; }
-pipx_has()          { pipx list 2>/dev/null | grep -qi -- "$1"; }
-npm_has()           { npm ls -g --depth=0 "$1" >/dev/null 2>&1; }
 expand_tilde()      { printf '%s' "${1/#\~/$HOME}"; }
 
 # yes/no prompt, default No unless second arg is "y"
@@ -121,7 +117,7 @@ doctor() {
     no "ansible collection community.general"; REQUIRED_MISSING+=("collection")
   fi
 
-  # Container runtime for Khoj (Colima by default; Docker Desktop if you set CONTAINER_RUNTIME=docker).
+  # Container runtime for n8n (Apple container by default; Colima/Docker per CONTAINER_RUNTIME).
   if command -v container >/dev/null 2>&1; then ok "Apple container installed"
   elif docker info >/dev/null 2>&1; then ok "container runtime (docker daemon reachable)"
   elif have colima; then warn "colima installed but not started — 'make setup' will start it"
@@ -160,7 +156,7 @@ offer_installs() {
 choose_mode() {
   # All UI goes to stderr; only the chosen value goes to stdout (this fn is captured).
   { hdr "What do you want to set up?"
-    say "  ${B}1${R}) Set up the local stack — llama.cpp, Khoj, n8n (everything on this Mac)."
+    say "  ${B}1${R}) Set up the local stack — llama.cpp (Gemma) + n8n (automation + capture)."
     say "  ${B}2${R}) Doctor only — just check the system and exit."
   } >&2
   ask "Choose" "1"
@@ -196,19 +192,17 @@ collect_telegram() {
 }
 
 collect_stack() {
-  hdr "Local model"
-  set_var MODEL_REPO "HuggingFace repo for the GGUF model" "Qwen/Qwen3-Coder-30B-A3B-Instruct-GGUF"
-  set_var MODEL_FILE "Model file within that repo" "qwen3-coder-30b-a3b-instruct-q5_k_m.gguf"
+  hdr "Local model (Gemma, for summarising)"
+  set_var MODEL_REPO "HuggingFace repo for the GGUF model" "bartowski/google_gemma-4-E4B-it-GGUF"
+  set_var MODEL_FILE "Model file within that repo" "google_gemma-4-E4B-it-Q4_K_M.gguf"
   set_var MODEL_DIR  "Where to store models" "$HOME/models"
   set_var LLAMA_PORT "Local model port" "8080"
 
-  hdr "Khoj (second brain over your docs)"
-  set_var KHOJ_DOCS_DIR "Folder to index in Khoj (read-only)" "$HOME/Documents/research"
-  if [ -z "$(env_get KHOJ_ADMIN_PASSWORD)" ] || [ "$(env_get KHOJ_ADMIN_PASSWORD)" = "__set_me__" ]; then
-    env_set KHOJ_ADMIN_PASSWORD "$(openssl rand -base64 18)"; ok "Generated Khoj admin password (in .env)."
-  fi
+  hdr "Capture folder (the airlock Notesage indexes)"
+  say "  ${DIM}Typically an iCloud Drive folder synced across your Macs.${R}"
+  set_var CAPTURE_DIR "Folder where captures/summaries are written" "$HOME/Library/Mobile Documents/com~apple~CloudDocs/Notesage/captures"
 
-  hdr "n8n (automation orchestrator)"
+  hdr "n8n (automation + capture)"
   if [ -z "$(env_get N8N_ENCRYPTION_KEY)" ] || [ "$(env_get N8N_ENCRYPTION_KEY)" = "__set_me__" ]; then
     env_set N8N_ENCRYPTION_KEY "$(openssl rand -hex 24)"; ok "Generated n8n encryption key — BACK THIS UP (in .env)."
   fi
@@ -229,7 +223,7 @@ collect_stack() {
 }
 
 # ---- execution --------------------------------------------------------------
-# Ensure the chosen container runtime is installed and running (Khoj needs it).
+# Ensure the chosen container runtime is installed and running (n8n needs it).
 # Records the Colima VM + the compose-plugin symlink to the manifest for clean teardown.
 ensure_container_runtime() {
   local rt; rt="$(env_get CONTAINER_RUNTIME)"; rt="${rt:-apple}"
@@ -246,7 +240,7 @@ ensure_container_runtime() {
       fi
       printf 'Y\n' | container system start >/dev/null 2>&1 || true
       rec dir "$HOME/Library/Application Support/com.apple.container"
-      ok "Apple container ready (Khoj will run on a host-only network with no internet egress)." ;;
+      ok "Apple container ready (n8n will run here)." ;;
     colima)
       hdr "Container runtime: Colima"
       if ! have colima; then brew install colima docker docker-compose && { rec brew_formula colima; rec brew_formula docker; rec brew_formula docker-compose; }; fi
@@ -279,15 +273,12 @@ run_stack() {
     [ "$had" -eq 0 ] && [ -f "$mp" ] && rec model "$mp"
   fi
 
-  if confirm "Run 'make mac' to install and start the local stack (llama, Khoj, n8n)?" y; then
+  if confirm "Run 'make mac' to install and start the local stack (llama + n8n)?" y; then
     # Snapshot package state BEFORE installing, so we record only what we add.
-    local missing_f=() missing_c=() miss_pipx=0 miss_npm=0 f
+    local missing_f=() f
     while IFS= read -r f; do [ -n "$f" ] && ! brew_has_formula "$f" && missing_f+=("$f"); done < <(brewfile_formulae)
-    while IFS= read -r f; do [ -n "$f" ] && ! brew_has_cask "$f" && missing_c+=("$f"); done < <(brewfile_casks)
-    pipx_has open-interpreter || miss_pipx=1
-    npm_has @cua/cli || miss_npm=1
 
-    # Install/start the container runtime BEFORE make mac (Khoj needs it). Done after the
+    # Install/start the container runtime BEFORE make mac (n8n needs it). Done after the
     # snapshot above so any packages it installs (colima/docker) are captured in the delta.
     ensure_container_runtime
 
@@ -295,9 +286,6 @@ run_stack() {
 
     # Record only packages that were absent before and are present now.
     for f in "${missing_f[@]:-}"; do [ -n "$f" ] && brew_has_formula "$f" && rec brew_formula "$f"; done
-    for f in "${missing_c[@]:-}"; do [ -n "$f" ] && brew_has_cask "$f" && rec brew_cask "$f"; done
-    [ "$miss_pipx" -eq 1 ] && pipx_has open-interpreter && rec pipx open-interpreter
-    [ "$miss_npm" -eq 1 ] && npm_has @cua/cli && rec npm_global @cua/cli
     # Native launchd artifacts make mac creates (removal is idempotent, so safe to always record).
     rec launchd com.local.llama-server
     rec file "$HOME/Library/LaunchAgents/com.local.llama-server.plist"
@@ -306,17 +294,9 @@ run_stack() {
     # Container artifacts depend on the runtime.
     local rt; rt="$(env_get CONTAINER_RUNTIME)"; rt="${rt:-apple}"
     if [ "$rt" = "apple" ]; then
-      rec apple_container khoj
-      rec apple_container khoj-db
       rec apple_container n8n
-      rec apple_network "$(env_get KHOJ_NETWORK || echo khojnet)"
-      rec apple_volume "$(env_get KHOJ_DB_VOLUME || echo khoj_db)"
-      rec apple_volume "$(env_get KHOJ_DATA_VOLUME || echo khoj_data)"
       rec apple_volume "$(env_get N8N_DATA_VOLUME || echo n8n_data)"
-      rec launchd com.local.llama-khojbridge
-      rec file "$HOME/Library/LaunchAgents/com.local.llama-khojbridge.plist"
     else
-      rec compose "$ROOT/compose/khoj.yml"
       rec compose "$ROOT/compose/n8n.yml"
     fi
   fi
@@ -340,27 +320,23 @@ preview_env() {  # print the (temp) .env, masking secret-looking values
 }
 
 print_plan() {
-  local f miss_f=() miss_c=()
+  local f miss_f=()
   hdr "Plan — what a real run would do (nothing below has happened)"
 
   [ "${#REQUIRED_MISSING[@]}" -gt 0 ] && plan "Offer to install prerequisites: ${REQUIRED_MISSING[*]}"
 
   local rt; rt="$(env_get CONTAINER_RUNTIME)"; rt="${rt:-apple}"
   case "$rt" in
-    apple)  plan "Container runtime: install Apple 'container'. Khoj + Postgres on a host-only network ($(env_get KHOJ_SUBNET || echo 192.168.66.0/24), no internet egress); n8n with egress. UIs via --publish to 127.0.0.1." ;;
-    colima) plan "Container runtime: install + start Colima; run Khoj + n8n via docker compose" ;;
-    docker) plan "Container runtime: use Docker Desktop; run Khoj + n8n via docker compose" ;;
+    apple)  plan "Container runtime: install Apple 'container'; run n8n (egress, UI on 127.0.0.1, Telegram polling)" ;;
+    colima) plan "Container runtime: install + start Colima; run n8n via docker compose" ;;
+    docker) plan "Container runtime: use Docker Desktop; run n8n via docker compose" ;;
   esac
 
   while IFS= read -r f; do [ -n "$f" ] && ! brew_has_formula "$f" && miss_f+=("$f"); done < <(brewfile_formulae)
-  while IFS= read -r f; do [ -n "$f" ] && ! brew_has_cask "$f" && miss_c+=("$f"); done < <(brewfile_casks)
   plan "Run 'make mac', which would:"
   if [ "${#miss_f[@]}" -gt 0 ]; then say "      - brew install: ${miss_f[*]}"; else say "      - brew: all Brewfile formulae already present"; fi
-  [ "${#miss_c[@]}" -gt 0 ] && say "      - brew install --cask: ${miss_c[*]}"
-  pipx_has open-interpreter || say "      - pipx install open-interpreter"
-  npm_has @cua/cli || say "      - npm install -g @cua/cli (best-effort)"
-  say "      - load launchd agent: com.local.llama-server"
-  say "      - start Khoj + Postgres (no egress) and n8n (egress, Telegram polling)"
+  say "      - load launchd agent: com.local.llama-server (Gemma)"
+  say "      - start n8n (egress, Telegram polling) and import the workflow skeletons"
 
   local mp; mp="$(expand_tilde "$(env_get MODEL_DIR)")/$(env_get MODEL_FILE)"
   if [ -f "$mp" ]; then say "      - model already present (no download): $mp"; else plan "Download the model (multi-GB) to $mp"; fi

@@ -38,7 +38,7 @@ check-env: ## Fail early if .env is missing
 	@test -f .env || { echo "Missing .env — run 'make setup' (guided) or: cp .env.example .env && edit it"; exit 1; }
 
 .PHONY: mac
-mac: check-env ## Provision the Mac mini: llama.cpp, Khoj+Postgres, n8n, Open Interpreter, Cua (idempotent)
+mac: check-env ## Provision the Mac mini: llama.cpp (Gemma) + n8n (idempotent)
 	$(ANSIBLE) ansible/mac.yml --limit mac
 
 .PHONY: model
@@ -50,7 +50,7 @@ workflows: check-env ## (Re)import the n8n workflow skeletons
 	bash mac/n8n-runtime.sh up
 
 .PHONY: down
-down: ## Stop the container stacks (Khoj, n8n)
+down: ## Stop n8n
 	$(ANSIBLE) ansible/mac.yml --limit mac --tags down || true
 
 .PHONY: verify
@@ -65,4 +65,3 @@ repo: ## Init git + create & push the GitHub repo (via gh). Usage: make repo [NA
 lint: ## Sanity-check Ansible and Compose files
 	@command -v ansible-lint >/dev/null && ansible-lint ansible/*.yml || echo "ansible-lint not installed (optional)"
 	@docker compose -f compose/n8n.yml config -q && echo "compose/n8n.yml OK"
-	@docker compose -f compose/khoj.yml config -q && echo "compose/khoj.yml OK"

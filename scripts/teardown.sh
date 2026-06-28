@@ -67,11 +67,11 @@ main() {
         launchctl bootout "gui/$(id -u)/$a" 2>/dev/null && ok "unloaded $a" || true ;;
       compose)
         if have docker && [ -f "$a" ]; then
-          confirm "Stop Khoj and DELETE its data volume ($a)?" y \
+          confirm "Stop the stack and DELETE its data volume ($a)?" y \
             && { docker compose -f "$a" down -v 2>/dev/null && ok "compose down -v: $a" || warn "compose down failed (daemon running?)"; }
         fi ;;
       colima)
-        # Processed AFTER compose (manifest reverse order) so the Khoj volume is removed first.
+        # Processed AFTER compose (manifest reverse order) so container volumes are removed first.
         if have colima; then
           confirm "Stop & delete the Colima VM (and ~/.colima, ~/.lima)?" y \
             && { colima stop 2>/dev/null; colima delete -f 2>/dev/null; rm -rf "$HOME/.colima" "$HOME/.lima"; ok "Colima VM removed"; }
@@ -86,7 +86,7 @@ main() {
         fi ;;
       apple_volume)
         if command -v container >/dev/null 2>&1; then
-          confirm "Delete container volume '$a' (Khoj data/DB)?" y \
+          confirm "Delete container volume '$a' (its data)?" y \
             && { container volume delete "$a" 2>/dev/null && ok "removed volume '$a'" || true; }
         fi ;;
       dir)

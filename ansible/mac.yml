@@ -1,7 +1,7 @@
 ---
-# ansible/mac.yml — provision the private core on the Mac. Idempotent.
+# ansible/mac.yml — provision the Mac mini: the local model (llama.cpp/Gemma) + n8n. Idempotent.
 # Requires the community.general collection: ansible-galaxy collection install community.general
-- name: Provision the Mac private core
+- name: Provision the airlocked-agents host
   hosts: mac
   gather_facts: true
   vars:
@@ -23,22 +23,6 @@
       changed_when: "'Installing' in brew_bundle.stdout"
       tags: [packages]
 
-    - name: Install Open Interpreter via pipx (isolated)
-      community.general.pipx:
-        name: open-interpreter
-        state: present
-      tags: [packages]
-
-    # Cua is OPTIONAL and best-effort: the upstream npm package name is not pinned/verified,
-    # so this step is allowed to fail. If it does, install the driver manually per cua.ai docs.
-    - name: Install the Cua computer-use driver (npm global, best-effort)
-      community.general.npm:
-        name: "@cua/cli"      # verify the exact package name against cua.ai docs
-        global: true
-        state: present
-      tags: [packages, cua]
-      failed_when: false      # non-fatal: install manually if the package name differs
-
     - name: Render the llama-server launchd plist
       ansible.builtin.template:
         src: "{{ repo_root }}/mac/com.local.llama-server.plist.tmpl"
@@ -55,23 +39,6 @@
       failed_when: false
       tags: [llama]
 
-    - name: Bring up Khoj on the configured container runtime (apple/colima/docker)
-      # khoj-runtime.sh handles each runtime; for Apple it creates the host-only (no-egress)
-      # network, runs Khoj + Postgres, and starts the llama bridge proxy. `make setup` installs
-      # the runtime first and records artifacts for clean teardown.
-      ansible.builtin.command:
-        cmd: bash {{ repo_root }}/mac/khoj-runtime.sh up
-      changed_when: false
-      tags: [khoj]
-
-    - name: Bring up n8n on the configured container runtime (automation orchestrator)
-      # n8n holds credentials and sends, so it runs with internet egress; UI on 127.0.0.1, no
-      # public inbound (Telegram is polled). Imports the workflow skeletons once healthy.
-      ansible.builtin.command:
-        cmd: bash {{ repo_root }}/mac/n8n-runtime.sh up
-      changed_when: false
-      tags: [n8n]
-
     - name: Verify the local model endpoint responds
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ llama_port }}/v1/models"
@@ -84,15 +51,17 @@
       until: llama_health.status == 200
       tags: [verify, llama]
 
-    # Teardown (only runs with: --tags down)
-    - name: Stop Khoj (on whichever container runtime is configured)
+    - name: Bring up n8n on the configured container runtime (automation + capture)
+      # n8n runs scheduled/event jobs + the Telegram capture; UI on 127.0.0.1, no public inbound
+      # (Telegram is polled). Imports the workflow skeletons once healthy. `make setup` installs
+      # the container runtime first and records artifacts for clean teardown.
       ansible.builtin.command:
-        cmd: bash {{ repo_root }}/mac/khoj-runtime.sh down
+        cmd: bash {{ repo_root }}/mac/n8n-runtime.sh up
       changed_when: false
-      failed_when: false
-      tags: [never, down]
+      tags: [n8n]
 
-    - name: Stop n8n (on whichever container runtime is configured)
+    # Teardown (only runs with: --tags down)
+    - name: Stop n8n
       ansible.builtin.command:
         cmd: bash {{ repo_root }}/mac/n8n-runtime.sh down
       changed_when: false
@@ -103,5 +72,4 @@
       ansible.builtin.command: >
         launchctl bootout gui/{{ ansible_user_uid | default(501) }}/com.local.llama-server
       failed_when: false
-      tags: [never, down]
       tags: [never, down]

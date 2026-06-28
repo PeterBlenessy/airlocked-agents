@@ -4,9 +4,10 @@
 
 > **Refocus in progress (2026-06):** this is becoming the **local, no-inbound automation + capture layer for [Notesage](https://github.com/PeterBlenessy/note-sage)** — n8n for scheduled/event jobs + Telegram mobile capture, a local **Gemma** model for summarising, writing into a folder Notesage indexes. **Khoj and the bundled "second brain" are dropped** (Notesage is that, installed separately). See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the new design and open questions; the sections below still describe the older bundled stack and are being rewritten.
 
-Idempotent setup of a private, self-hosted AI stack on **one dedicated, always-on Mac mini**: a
-local model + second brain (Khoj), an n8n automation orchestrator, and per-action computer control —
-everything in Apple `container` or native launchd, with **no public inbound** (Telegram is polled).
+Idempotent setup of the **automation + capture layer for Notesage** on **one dedicated, always-on
+Mac mini**: a local **Gemma** model (llama.cpp) + **n8n** for scheduled/event jobs and **Telegram
+mobile capture**, writing summaries into a folder Notesage indexes — with **no public inbound**
+(Telegram is polled). Notesage (the second brain) is installed separately.
 Claude + MCP are used cloud-side for public work only.
 
 The whole point of this repo is to keep one rule true automatically: **no single component reads untrusted content, holds your credentials, and can send — all at once.**
@@ -29,9 +30,9 @@ Honest IaC draws the line clearly. This repo does too.
 
 **Fully deterministic + idempotent (run as many times as you like):**
 - All package installs (Homebrew) and the container runtime (Apple `container`, or Colima).
-- The containers (llama.cpp native; Khoj + Postgres + n8n) with fixed networks and named volumes.
-- Khoj's host-only (no-egress) network; n8n's localhost-only UI; the llama bridge proxy.
-- Service enablement (launchd) and the n8n workflow import.
+- llama.cpp (Gemma) as a native launchd service; n8n as a container with a localhost-only UI.
+- The llama→container gateway bridge; the n8n workflow import.
+- Service enablement (launchd) and the capture-folder mount.
 
 **Manual, one-time, by design (cannot be deterministic — interactive consent):**
 - **Telegram bot token** — created interactively via `@BotFather` (reached by polling, no webhook).
@@ -45,7 +46,7 @@ Everything manual is reduced to filling `.env` and the short checklist in `docs-
 
 ## Prerequisites
 
-- A **dedicated, always-on Mac mini** (Apple Silicon) with Homebrew — ideally not your daily-driver with personal files. Enough RAM for the model + Khoj + Postgres + n8n (16 GB works; 24 GB+ comfortable).
+- A **dedicated, always-on Mac mini** (Apple Silicon) with Homebrew. Enough RAM for the Gemma model + n8n (16 GB is comfortable).
 - macOS 26+ for the default container runtime (**Apple `container`**, installed for you). On older macOS it falls back to **Colima**; set `CONTAINER_RUNTIME=docker` to use Docker Desktop instead.
 - `ansible` and `make` (`brew install ansible make`) — or just run `make setup`, which installs what's missing.
 - Your llama.cpp model file (or run `make model` to fetch one).
@@ -66,18 +67,17 @@ airlocked-agents/
 │   └── ci.yml               # syntax + compose + json/shell checks + secret guard
 ├── ansible/
 │   ├── inventory.ini        # localhost (the Mac mini) only
-│   └── mac.yml              # llama.cpp + Khoj + n8n + Open Interpreter + Cua* + launchd
+│   └── mac.yml              # llama.cpp (Gemma) + n8n + launchd
 ├── compose/
-│   ├── n8n.yml              # n8n, localhost-only (Colima/Docker fallback path)
-│   └── khoj.yml             # Khoj + Postgres (Colima/Docker fallback path)
+│   └── n8n.yml              # n8n, localhost-only (Colima/Docker fallback path)
 ├── mac/
 │   ├── Brewfile             # declarative Mac packages
-│   ├── com.local.llama-server.plist.tmpl    # the model, 127.0.0.1 only
-│   ├── khoj-runtime.sh      # Khoj + Postgres up/down (Apple container / compose)
+│   ├── com.local.llama-server.plist.tmpl    # the Gemma model, 127.0.0.1 only
 │   ├── n8n-runtime.sh       # n8n up/down + workflow import (Apple container / compose)
 │   └── download-model.sh
 ├── n8n/
-│   ├── allowlist.code.js    # canonical chat-id + recipient guard (embedded into the write path)
+│   ├── allowlist.code.js    # canonical chat-id + recipient guard (embedded in workflows)
+│   ├── workflow.capture.json      # Telegram mobile capture → folder (skeleton)
 │   ├── workflow.read-path.json    # importable skeleton (verify in editor)
 │   └── workflow.write-path.json   # write path with the guard inlined
 ├── scripts/
@@ -126,7 +126,7 @@ Nervous about running it? **`make setup-dryrun`** runs the whole wizard and prin
 cp .env.example .env          # then edit .env with your values
 make help                     # list targets
 make model                    # download the GGUF model (multi-GB, opt-in)
-make mac                      # provision the mini: llama.cpp, Khoj+Postgres, n8n (idempotent)
+make mac                      # provision the mini: llama.cpp (Gemma) + n8n (idempotent)
 make workflows                # (re)import the n8n workflow skeletons
 make verify                   # health + boundary checks
 ```
@@ -162,8 +162,8 @@ registration, not a limitation of this repo. See `docs-MANUAL-STEPS.md`.
 ## Security notes baked in
 
 - All services listen on `127.0.0.1` or the host-only container-network gateway (the llama bridge) — **never a public interface, and no public inbound** (Telegram is polled). Verified by `make verify`.
-- Khoj runs on a host-only (`--internal`) network → **no internet egress** — the "can send" trifecta leg is removed for the content-reader. `make verify` checks it.
-- The n8n write path is credential-isolated and human-gated; the allowlist guard is embedded directly in `n8n/workflow.write-path.json` (canonical source: `n8n/allowlist.code.js`), so an import is guarded out of the box.
+- n8n holds no secrets and only **writes** to the capture folder (the airlock); Notesage only **reads** it. Captured web content can't exfiltrate because the reader has no send path.
+- The allowlist guard (chat-id) is embedded in the workflows (canonical source: `n8n/allowlist.code.js`), so only you can submit captures/commands.
 - Sensitive work routes to the local model; nothing private egresses to the cloud.
 - `make verify` runs the allowlist guard self-test (`scripts/injection-selftest.sh`); the full end-to-end prompt-injection test is manual — see `scripts/injection-selftest.md`.
 

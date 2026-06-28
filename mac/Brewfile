@@ -1,25 +1,19 @@
 # mac/Brewfile — declarative Mac packages. Applied idempotently via `brew bundle`.
 # Pin versions where reproducibility matters.
 
-# Local model server (provides llama-server).
+# Local model server (provides llama-server) — runs Gemma for summarisation.
 brew "llama.cpp"
 
-# Container runtime for Khoj is installed by `make setup` per CONTAINER_RUNTIME (not here, so the
-# static Brewfile doesn't pin a runtime): `apple` (default) installs Apple's `container`; `colima`
-# installs colima + the docker CLI + compose; `docker` expects Docker Desktop. See COMPONENTS.md.
-
-# Python tooling for agents installed via pipx (keeps them isolated).
-brew "pipx"
-
-# Bridges the localhost model to containers on their host-only network (llama bridge proxy).
+# Bridges the localhost model to the n8n container over its host-only gateway (socat).
 brew "socat"
 
-# Node/npm — required for the Cua npm install below and for the allowlist guard self-test.
+# Node — for the allowlist guard self-test (scripts/injection-selftest.sh).
 brew "node"
 
 # Convenience.
 brew "jq"
 brew "huggingface-cli"   # for `make model`
 
-# NOTE: Open Interpreter and the Cua driver are installed via pipx/npm in ansible/mac.yml,
-# not here, because they are app-level tools rather than Homebrew formulae.
+# The container runtime for n8n is installed by `make setup` per CONTAINER_RUNTIME (not pinned
+# here): `apple` (default) installs Apple's `container`; `colima` installs colima + docker CLI +
+# compose; `docker` expects Docker Desktop. See COMPONENTS.md.

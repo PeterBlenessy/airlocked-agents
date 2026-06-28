@@ -1,6 +1,6 @@
 # Keep the GitHub Actions used in CI up to date.
 # NOTE: container image tags are pinned via .env variables, so Dependabot can't track
-# them here — bump N8N_IMAGE / KHOJ_IMAGE manually and re-run `make verify`.
+# them here — bump N8N_IMAGE / MODEL_FILE manually and re-run `make verify`.
 version: 2
 updates:
   - package-ecosystem: "github-actions"

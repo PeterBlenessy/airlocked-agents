@@ -1,150 +1,82 @@
 # Components
 
-What each part of the stack actually *is*, the job it does here, and why it was chosen over the
-obvious alternatives. For how the parts connect (trust zones, data flows, the firewall posture),
-see [`ARCHITECTURE.md`](ARCHITECTURE.md); for the threat model, [`SECURITY.md`](SECURITY.md).
+What each part *is*, the job it does here, and why it was chosen. For how the parts connect (data
+flows, the airlock, the trifecta), see [`ARCHITECTURE.md`](ARCHITECTURE.md); for the threat model,
+[`SECURITY.md`](SECURITY.md).
 
-**The selection principle.** Every component is open-source, self-hostable, and auditable — and,
-crucially, each occupies exactly *one* corner of the "lethal trifecta" (read untrusted content /
-hold credentials / send outward). Tools were chosen as much for **what they're not allowed to do**
-as for what they do.
+airlocked-agents is the **automation + capture layer for Notesage** — it does *not* bundle a second
+brain. The selection principle: every component is open-source/auditable, and each occupies at most
+*one* corner of the "lethal trifecta" (read untrusted / hold credentials / send outward).
 
 ---
 
-> Everything below the cloud section runs on **one dedicated Mac mini** (Apple `container` or
-> native launchd). The "Zone" headings describe *roles* (private core, automation, cloud), not
-> separate machines — the only real split is local vs. cloud.
-
-## The private core (on the mini)
+## On the Mac mini (this repo installs these)
 
 ### llama.cpp
-- **What it is:** an open-source LLM inference engine (by Georgi Gerganov), written in C/C++. It
-  runs quantized open-weight models (the GGUF format) efficiently on consumer hardware, including
-  Apple Silicon via Metal, and ships a small `llama-server` with an **OpenAI-compatible API**.
-- **Its job here:** the **local brain** — answers anything private, on your Mac, with nothing
-  leaving the machine. Bound to `127.0.0.1` only.
-- **Why it over alternatives:** Ollama and LM Studio are friendlier wrappers but heavier and more
-  opinionated; vLLM is server-grade but CUDA/NVIDIA-centric, not Mac. llama.cpp is a single
-  auditable native binary with the best Metal support, and its OpenAI-compatible endpoint means
-  Khoj and Suna talk to it with **no custom code** (they think it's "OpenAI").
-
-### Khoj
-- **What it is:** an open-source "AI second brain." Point it at your own documents/notes/PDFs; it
-  indexes them and lets you **search and chat with your own knowledge** (RAG — retrieval-augmented
-  generation). Works with local or cloud models.
-- **Its job here:** your private knowledge assistant — answers *from your documents* using the
-  local llama.cpp model, so your files and queries never reach the cloud. Your docs are mounted
-  **read-only**; it binds to `127.0.0.1` only.
-- **Why it over alternatives:** rolling your own (Obsidian + a vector DB + glue) is a lot of
-  assembly; cloud second brains (Mem, Notion AI) send your notes off-device — disqualifying here.
-  Khoj is self-hostable, does indexing + RAG out of the box, and can point at a local model.
-- **Why containerized (vs a pip venv):** Khoj ingests content and pulls a large dependency tree,
-  so a container's *capability* isolation (read-only doc mount, no host access) serves the security
-  goal — a venv would run it with your full user privileges.
-- **It needs a database.** Khoj requires Postgres (with the pgvector extension), so it runs as
-  **two containers** (Khoj + `khoj-db`). The DB is never exposed to the host.
-- **Which runtime (memory / performance / security):** by default both run on **Apple's native
-  `container`** — chosen as the best on all axes (per-container micro-VM isolation, memory reclaimed
-  on stop, native performance, trusted vendor, no licensing). They share a **dedicated host-only
-  network** (`--internal`, fixed subnet): Khoj has **no internet egress**, closing the "can send"
-  trifecta leg by construction (a stronger posture than Docker/Colima as shipped). The UI is on
-  `127.0.0.1` via the runtime's native port publish; a single local `socat` bridge lets Khoj reach
-  the host's llama. **Colima** is the automatic fallback (drop-in `docker compose`, Khoj+Postgres),
-  **Docker Desktop** an opt-in. Set `CONTAINER_RUNTIME` in `.env`. (Apple-container networking was
-  verified end-to-end on macOS 26.)
-
-### Open Interpreter
-- **What it is:** an open-source tool that lets an LLM **write and run code/shell on your machine**
-  from natural language — a local "code interpreter" that can actually touch your computer. It asks
-  for confirmation before running.
-- **Its job here:** the "do things on my Mac" hands — run scripts, automate local tasks — **gated
-  by per-action approval**, which is its safety model.
-- **Why it over alternatives:** most agent frameworks (e.g. LangChain) are libraries you build
-  with; Open Interpreter is a ready-to-use local executor with a human-approval loop, fitting the
-  "powerful but gated" slot.
-
-### Cua
-- **What it is:** a **computer-use agent** driver — software that lets an AI control a computer's
-  GUI (mouse, keyboard) the way a person would. Exposed here over MCP so other components can drive
-  it.
-- **Its job here:** GUI automation for tasks that have no API.
-- **Why it over alternatives:** computer-use is a young area and Cua is one of the few open
-  drivers. Honest caveat: it's the **least mature** piece — installed "best-effort" and optional,
-  precisely because the ecosystem isn't settled.
-
----
-
-## Automation + research (on the mini)
+- **What it is:** an open-source LLM inference engine (Georgi Gerganov), C/C++, runs quantized
+  GGUF models with Apple-Silicon Metal acceleration, and ships a small `llama-server` with an
+  **OpenAI-compatible API**.
+- **Its job here:** the **summariser** — n8n calls it to condense fetched articles/tweets. Bound to
+  `127.0.0.1`; reachable by the n8n container via a small `socat` gateway bridge.
+- **Model:** **Google Gemma 4 E4B (instruct)** — the small model Notesage's own catalog uses, so the
+  mini runs the same thing. General instruct, not coding.
+- **Why it over alternatives:** Ollama/LM Studio are heavier wrappers; vLLM is CUDA-centric. llama.cpp
+  is a single auditable native binary with the best Metal support and an OpenAI-compatible endpoint
+  (n8n talks to it with no custom code).
 
 ### n8n
-- **What it is:** an open-source **workflow automation** platform — a self-hosted alternative to
-  Zapier/Make. You build flows visually as connected "nodes" (email arrives → summarize → ask me →
-  send), and it has an **encrypted credential vault**.
-- **Its job here:** the **orchestrator** tying mail, Telegram, and the models together — and the
-  one component that legitimately *holds credentials and can send*. The design deliberately keeps
-  the model out of that credential/send path. UI bound to `127.0.0.1` only; Telegram is **polled**
-  (no webhook), so n8n has no public inbound.
-- **Why it over alternatives:** Zapier/Make are cloud SaaS — your credentials would live on
-  someone else's servers (disqualifying). Node-RED/Huginn are more DIY. n8n is self-hostable, has
-  the credential vault, a big integration library, and a clean human-in-the-loop pattern — which is
-  what lets "the AI drafts" and "a node sends" be *different* steps.
-
-### Suna
-- **What it is:** an open-source **generalist AI agent** (by Kortix AI) — give it a goal and it
-  browses the web, gathers information, and produces a report. Often described as an open-source
-  "Manus" alternative.
-- **Its job here:** the **research rig** — reads the (untrusted) web, but runs **sandboxed with no
-  inbox, no credentials, and no send path**, so a poisoned page can't make it exfiltrate. Public
-  research goes to Claude; sensitive research is routed to your local model. **Status: deferred** —
-  Suna is a heavy multi-service stack and is not yet wired for the single-box model.
-- **Why it over alternatives:** lighter research scripts (e.g. GPT-Researcher) are less
-  full-featured; cloud agent products aren't self-hostable/sandboxable. Suna is open-source and can
-  be isolated, fitting the "reads the web but can't leak" slot.
-
----
-
-## Cloud (public only, outbound)
-
-### Claude + MCP
-- **What it is:** **Claude** is Anthropic's family of LLMs (the strong cloud model). **MCP (Model
-  Context Protocol)** is an open standard for connecting an LLM to external tools and data via
-  "connector" servers — here Gmail, Calendar, Drive, Quartr.
-- **Its job here:** the **public heavy-lifter** — the most capable model for *non-private* work,
-  reached outbound-only, never shown private data and never allowed to act unsupervised.
-- **Why it over alternatives:** for public tasks you want the strongest model; the safety isn't
-  "trust the model," it's that this zone structurally never holds your secrets. MCP is chosen as the
-  standardized, model-agnostic way to wire up tools.
-
----
-
-## Supporting players
+- **What it is:** an open-source **workflow automation** platform (self-hosted Zapier/Make
+  alternative) — visual node-based flows, scheduled + event triggers, an encrypted credential vault.
+- **Its job here:** the engine for the **two needs** — (1) **scheduled / event-triggered jobs**
+  (RSS/news/market pulls, folder-watch) and (2) **Telegram mobile capture**. It reads the untrusted
+  web, summarises via the local model, and **writes files into the capture folder**. UI on
+  `127.0.0.1`; **Telegram is polled (no webhook) → no public inbound.** Holds **no secrets** (those
+  go to the future broker); its only "output" is writing local files.
+- **Why it over alternatives:** Zapier/Make are cloud SaaS (credentials off-device — disqualifying);
+  Node-RED/Huginn are more DIY. n8n is self-hostable with the triggers, integrations, and HTTP/HTML
+  nodes this needs, plus a local-AI (custom base URL) node for the local model.
 
 ### Telegram (bot)
-- **What it is:** a messaging app with a trivial, free **bot API**. We reach it by **polling**
-  (Schedule + getUpdates) rather than a webhook, so there is no public inbound.
-- **Its job here:** your **command + notification channel** — you issue commands and receive
-  drafts/alerts.
-- **Why it / the catch:** chosen for the easy bot API and ubiquity. Because it's a *cloud* channel,
-  the **chat-id allowlist** ensures only *you* can command the bot.
+- **What it is:** a messaging app with a trivial, free **bot API**.
+- **Its job here:** the **mobile capture transport** — share a URL/tweet from your phone's Share
+  Sheet to the bot; n8n **polls** `getUpdates` (no inbound) and ingests it. Can also carry
+  notifications/approvals later.
+- **The catch:** it's a cloud channel, so a **chat-id allowlist** ensures only *you* can submit.
 
-### Supabase
-- **What it is:** an open-source "Firebase alternative" — Postgres + auth + storage.
-- **Its job here:** **Suna's backend** (its supported dependency); can be cloud or self-hosted.
+### Credential broker (future)
+- **What it is:** a small **native macOS helper** — the only reader of the **Keychain**.
+- **Its job here:** perform the few *credentialed* actions (e.g. the X API fetch for tweets, or any
+  send) so secrets never enter n8n. Deterministic, allowlisted, approval-gated — **not** an AI.
+- **Status:** not built yet. Plain-URL capture needs no secrets, so v1 ships without it.
+
+---
+
+## What you bring (not installed by this repo)
+
+### Notesage — the second brain
+- **What it is:** your local-first AI workspace (Tauri/Rust) — notes, a bundled local model, agents,
+  MCP, an SQLite FTS5 index, and filesystem/network sandboxing. It is the "private core."
+- **Its job here:** **reads and indexes the capture folder** (the airlock) and is the UI/brain. It
+  holds no send credentials, so even a poisoned captured file can't exfiltrate through it.
+- **Why external:** you already install it (possibly on a different Mac), so bundling it makes no
+  sense. airlocked-agents integrates by writing files it indexes.
+
+### Claude + MCP (optional cloud)
+- The strong cloud model for *public, non-sensitive* work, reached outbound-only. Sensitive
+  summarising stays on the local Gemma.
 
 ---
 
 ## The pattern, restated
 
-| Component | Reads untrusted? | Holds credentials? | Can send? |
+| Component | Reads untrusted? | Holds credentials? | Can send/exfiltrate? |
 |---|---|---|---|
-| llama.cpp | no | no | no |
-| Khoj | your docs (sandboxed, read-only) | no | no |
-| Open Interpreter | no | no | approved actions only |
-| Cua | no | no | via orchestrator |
-| n8n | yes (email/web) | yes (vault) | yes — human-gated + allowlisted |
-| Suna | yes (web) | per-task only | no (drafts only) |
-| Claude + MCP | yes (public only) | vendor-managed | supervised |
+| llama.cpp (Gemma) | the text it's given | no | no (localhost) |
+| n8n | yes (web/tweets) | **no** (broker will) | only *writes local files*; egress is fetch-only |
+| broker (future, native) | no | yes (Keychain) | yes — but deterministic + allowlisted + **not an AI** |
+| Notesage (external) | yes (notes + captures) | no send creds | no (reads the airlock) |
+| Claude + MCP (optional) | public only | vendor-managed | supervised |
 
-No row holds all three powers. llama.cpp/Khoj hold your private data but can't reach the internet;
-Suna/Claude read the world but can't send; n8n can send but never lets the model hold its
-credentials. That separation is the whole point.
+No row holds all three. The web-reader (n8n) holds no secrets and only writes files; the brain
+(Notesage) reads untrusted captures but can't send; the secret-holder (broker) isn't an AI. The
+**capture folder is the airlock** between them.
