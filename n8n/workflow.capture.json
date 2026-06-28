@@ -1,0 +1,89 @@
+{
+  "id": "airlocked-capture",
+  "name": "Mobile capture → knowledge folder",
+  "_comment": "SKELETON — finish/verify in the n8n editor (needs a real Telegram bot token + the local model running). Flow: poll Telegram getUpdates (no inbound) → allowlist-guard your chat id → for each shared URL, fetch it → extract readable text → summarise via the LOCAL model → write a Notesage-frontmatter .md into the mounted capture folder (/capture, = $CAPTURE_DIR on the host). THREE things to finish in the editor are marked TODO below: (a) getUpdates offset tracking via workflow static data, (b) robust HTML→text extraction, (c) text→file conversion before the write node.",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [ { "field": "minutes", "minutesInterval": 1 } ] } },
+      "name": "Poll schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [ 180, 300 ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/getUpdates",
+        "options": {}
+      },
+      "name": "Telegram getUpdates (poll)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [ 380, 300 ],
+      "_comment": "TODO(a): pass ?offset=<last_update_id+1> from workflow static data so messages aren't reprocessed."
+    },
+    {
+      "parameters": { "jsCode": "// Allowlist guard + extract shared URLs from Telegram updates.\n// Reuses n8n/allowlist.code.js semantics: only YOUR chat id may submit captures.\nconst ALLOWED_CHAT_ID = Number($env.TELEGRAM_ALLOWED_CHAT_ID);\nconst res = $input.first().json.result || [];\nconst urlRe = /(https?:\\/\\/[^\\s]+)/g;\nconst out = [];\nfor (const u of res) {\n  const msg = u.message; if (!msg) continue;\n  const chatId = msg.chat?.id;\n  if (chatId !== ALLOWED_CHAT_ID) { continue; } // ignore anyone but you\n  const text = msg.text || '';\n  const urls = text.match(urlRe) || [];\n  for (const url of urls) out.push({ json: { url, chatId, update_id: u.update_id } });\n}\nreturn out;" },
+      "name": "Guard + extract URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 580, 300 ]
+    },
+    {
+      "parameters": { "method": "GET", "url": "={{ $json.url }}", "options": { "response": { "response": { "responseFormat": "text" } } } },
+      "name": "Fetch URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [ 780, 300 ]
+    },
+    {
+      "parameters": { "jsCode": "// TODO(b): naive HTML→text — replace with a readability extractor for clean article text.\nconst html = String($json.data || $json.body || '');\nconst text = html.replace(/<script[\\s\\S]*?<\\/script>/gi,' ').replace(/<style[\\s\\S]*?<\\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\\s+/g,' ').trim().slice(0, 12000);\nreturn [{ json: { url: $('Guard + extract URLs').item.json.url, text } }];" },
+      "name": "Extract text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 980, 300 ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LLAMA_BASE_URL }}/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "Authorization", "value": "=Bearer {{ $env.LLAMA_API_KEY }}" } ] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'local', messages: [ { role: 'system', content: 'Summarise the page in 5 lines; first line is a concise title.' }, { role: 'user', content: $json.text } ], max_tokens: 400 }) }}",
+        "options": {}
+      },
+      "name": "Summarise (local model)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [ 1180, 300 ],
+      "_comment": "LLAMA_BASE_URL = the in-container URL to reach llama.cpp via the host gateway bridge, e.g. http://192.168.64.1:8080/v1"
+    },
+    {
+      "parameters": { "jsCode": "// Assemble the Notesage-frontmatter capture file (see ARCHITECTURE.md 'Capture file contract').\nconst url = $('Extract text').item.json.url;\nconst summary = ($json.choices?.[0]?.message?.content || '').trim();\nconst title = (summary.split('\\n')[0] || url).replace(/^#+\\s*/, '').slice(0, 120);\nconst body = $('Extract text').item.json.text;\nconst now = new Date().toISOString();\nconst slug = (title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,60) || 'capture') + '-' + Date.now();\nconst md = `---\\ntitle: ${JSON.stringify(title)}\\nsource_url: ${url}\\ndate_saved: ${now}\\ndoc_type: capture\\ntags: [captured]\\ndescription: ${JSON.stringify(summary.split('\\n').slice(1).join(' ').slice(0,200))}\\n---\\n\\n# ${title}\\n\\n${summary}\\n\\n---\\n\\n${body}\\n`;\nreturn [{ json: { slug, md, path: `/capture/${slug}.md` } }];" },
+      "name": "Build capture file",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 1380, 300 ]
+    },
+    {
+      "parameters": { "operation": "write", "fileName": "={{ $json.path }}", "dataPropertyName": "data" },
+      "name": "Write to capture folder",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [ 1580, 300 ],
+      "_comment": "TODO(c): readWriteFile writes a BINARY property — add a 'Convert to File'/'Move Binary Data' step turning $json.md into binary 'data' before this node. Writes into /capture, which is $CAPTURE_DIR mounted from the host."
+    }
+  ],
+  "connections": {
+    "Poll schedule": { "main": [ [ { "node": "Telegram getUpdates (poll)", "type": "main", "index": 0 } ] ] },
+    "Telegram getUpdates (poll)": { "main": [ [ { "node": "Guard + extract URLs", "type": "main", "index": 0 } ] ] },
+    "Guard + extract URLs": { "main": [ [ { "node": "Fetch URL", "type": "main", "index": 0 } ] ] },
+    "Fetch URL": { "main": [ [ { "node": "Extract text", "type": "main", "index": 0 } ] ] },
+    "Extract text": { "main": [ [ { "node": "Summarise (local model)", "type": "main", "index": 0 } ] ] },
+    "Summarise (local model)": { "main": [ [ { "node": "Build capture file", "type": "main", "index": 0 } ] ] },
+    "Build capture file": { "main": [ [ { "node": "Write to capture folder", "type": "main", "index": 0 } ] ] }
+  },
+  "settings": {}
+}
