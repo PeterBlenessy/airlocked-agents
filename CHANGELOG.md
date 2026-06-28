@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Removed (cleanup: drop the bundled second brain)
+- Deleted Khoj + Postgres entirely (`mac/khoj-runtime.sh`, `compose/khoj.yml`, all `KHOJ_*` env,
+  the Khoj artifact recording/checks). Also dropped Open Interpreter + Cua from provisioning — the
+  "private core" is Notesage now, installed separately. `ansible/mac.yml` is just llama.cpp (Gemma)
+  + n8n; Brewfile slimmed; setup/verify/teardown, CI, and docs (README/COMPONENTS) updated to the
+  capture-layer shape. Model default set to Google Gemma 4 E4B.
+
 ### Changed (refocus: automation + capture layer for Notesage)
 - Rescoped the project: it is now the **local, no-inbound automation + capture layer for Notesage**,
   not a bundled stack. **Khoj / the second brain are dropped** (Notesage fills that role, installed

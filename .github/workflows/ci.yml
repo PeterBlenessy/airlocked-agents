@@ -39,7 +39,6 @@ jobs:
         run: |
           cp .env.example .env   # placeholder values are fine for `config`
           docker compose -f compose/n8n.yml --env-file .env config -q
-          docker compose -f compose/khoj.yml --env-file .env config -q
           echo "Compose files valid."
 
       # Hard gate: JSON workflows and shell scripts must parse.
